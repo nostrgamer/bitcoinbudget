@@ -1,12 +1,14 @@
 import type { Budget, BudgetCategory, Transaction, Transfer, StorageMetadata } from '../../types/budget'
+import type { Account } from '../../types/account'
 
 // Database configuration
 const DB_NAME = 'BitcoinBudgetDB'
-const DB_VERSION = 1
+const DB_VERSION = 2 // Incremented for Phase 2 accounts
 
 // Object store names
 export const STORES = {
   BUDGETS: 'budgets',
+  ACCOUNTS: 'accounts',
   CATEGORIES: 'categories', 
   TRANSACTIONS: 'transactions',
   TRANSFERS: 'transfers',
@@ -16,6 +18,7 @@ export const STORES = {
 // Database schema
 interface DBSchema {
   [STORES.BUDGETS]: Budget
+  [STORES.ACCOUNTS]: Account
   [STORES.CATEGORIES]: BudgetCategory
   [STORES.TRANSACTIONS]: Transaction
   [STORES.TRANSFERS]: Transfer
@@ -45,6 +48,16 @@ export function openDatabase(): Promise<IDBDatabase> {
         const budgetStore = db.createObjectStore(STORES.BUDGETS, { keyPath: 'id' })
         budgetStore.createIndex('isActive', 'isActive', { unique: false })
         budgetStore.createIndex('createdAt', 'createdAt', { unique: false })
+      }
+      
+      // Create accounts store
+      if (!db.objectStoreNames.contains(STORES.ACCOUNTS)) {
+        const accountStore = db.createObjectStore(STORES.ACCOUNTS, { keyPath: 'id' })
+        accountStore.createIndex('budgetId', 'budgetId', { unique: false })
+        accountStore.createIndex('type', 'type', { unique: false })
+        accountStore.createIndex('isOnBudget', 'isOnBudget', { unique: false })
+        accountStore.createIndex('isClosed', 'isClosed', { unique: false })
+        accountStore.createIndex('createdAt', 'createdAt', { unique: false })
       }
       
       // Create categories store

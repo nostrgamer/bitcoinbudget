@@ -15,6 +15,7 @@ export interface BudgetCategory {
 
 export interface Transaction {
   id: string
+  accountId: string // Required - all transactions tied to accounts
   categoryId: string | null // null for unassigned transactions
   amount: number // in satoshis (positive for income, negative for expenses)
   description: string
@@ -23,6 +24,9 @@ export interface Transaction {
   createdAt: Date
   updatedAt: Date
   tags?: string[]
+  cleared?: boolean // for reconciliation
+  transferAccountId?: string // for account-to-account transfers
+  transferTransactionId?: string // linked transfer transaction
 }
 
 export enum TransactionType {

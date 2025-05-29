@@ -228,6 +228,44 @@ const BudgetPage = () => {
           </div>
         </div>
 
+        {/* Navigation */}
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold mb-4">Manage</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <button 
+              onClick={() => navigate('/accounts')}
+              className="p-4 border rounded-lg hover:bg-muted transition-colors text-center"
+            >
+              <div className="font-medium">Accounts</div>
+              <div className="text-sm text-muted-foreground">Bitcoin wallets</div>
+            </button>
+            
+            <button 
+              onClick={() => navigate('/categories')}
+              className="p-4 border rounded-lg hover:bg-muted transition-colors text-center"
+            >
+              <div className="font-medium">Categories</div>
+              <div className="text-sm text-muted-foreground">Budget envelopes</div>
+            </button>
+            
+            <button 
+              onClick={() => navigate('/transactions')}
+              className="p-4 border rounded-lg hover:bg-muted transition-colors text-center"
+            >
+              <div className="font-medium">Transactions</div>
+              <div className="text-sm text-muted-foreground">Income & expenses</div>
+            </button>
+            
+            <button 
+              onClick={() => navigate('/transfers')}
+              className="p-4 border rounded-lg hover:bg-muted transition-colors text-center"
+            >
+              <div className="font-medium">Transfers</div>
+              <div className="text-sm text-muted-foreground">Move between categories</div>
+            </button>
+          </div>
+        </div>
+
         {/* Budget Categories */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">

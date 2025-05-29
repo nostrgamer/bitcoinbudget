@@ -5,6 +5,7 @@ import BudgetPage from './pages/budget-page.tsx'
 import CategoriesPage from './pages/categories-page.tsx'
 import TransactionsPage from './pages/transactions-page.tsx'
 import TransfersPage from './pages/transfers-page.tsx'
+import { AccountsPage } from './pages/accounts-page.tsx'
 import { useBudgetStorageInit } from './hooks/use-budget-storage'
 import './App.css'
 
@@ -18,6 +19,7 @@ function App() {
         <Route path="/" element={<WelcomePage />} />
         <Route path="/budget" element={<BudgetPage />} />
         <Route path="/budget/:budgetId" element={<BudgetPage />} />
+        <Route path="/accounts" element={<AccountsPage />} />
         <Route path="/categories" element={<CategoriesPage />} />
         <Route path="/transactions" element={<TransactionsPage />} />
         <Route path="/transfers" element={<TransfersPage />} />
