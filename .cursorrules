@@ -1,0 +1,164 @@
+# Bitcoin Budget App - Cursor Rules
+
+## Project Overview
+This is a Bitcoin budgeting web application that follows envelope budgeting methodology with monthly budget periods and account management, designed specifically for Bitcoiners. All budgeting is done in sats/Bitcoin with manual entry (no wallet connectivity). The app prioritizes privacy with client-side data storage and encryption.
+
+## Implementation Phases
+- **Phase 1 (Complete)**: Basic envelope budgeting, categories, transactions, transfers
+- **Phase 2 (In Progress)**: Account management system with multiple Bitcoin accounts/wallets
+- **Phase 3 (Planned)**: Monthly budgeting with rollover logic and budget periods
+
+## Core Data Model
+- **Accounts**: Bitcoin wallets/holdings (hardware, exchange, mobile, etc.)
+- **Budget Periods**: Monthly cycles for budget allocation and tracking
+- **Categories**: Spending envelopes for organizing budget
+- **Transactions**: Bitcoin movements tied to specific accounts
+- **Transfers**: Moving Bitcoin between accounts or allocating to categories
+
+## Technology Stack
+- **Frontend**: React 18+ with TypeScript
+- **Styling**: TailwindCSS 3.x
+- **Build Tool**: Vite
+- **UI Components**: shadcn/ui (Radix UI + Tailwind)
+- **State Management**: TanStack Query (React Query)
+- **Routing**: React Router
+- **Storage**: IndexedDB with Web Crypto API encryption
+- **PWA**: Service Worker for offline capability
+
+## Code Style & Best Practices
+
+### TypeScript
+- Use strict TypeScript configuration
+- Prefer interfaces over types for object shapes
+- Use proper typing, avoid `any`
+- Use enums for constants where appropriate
+- Implement proper error handling with typed errors
+
+### React
+- Use functional components with hooks
+- Prefer composition over inheritance
+- Use proper dependency arrays in useEffect
+- Implement proper error boundaries
+- Use React.memo for performance optimization where needed
+
+### File Organization
+- Use kebab-case for file names
+- Use PascalCase for component names
+- Group related files in feature folders
+- Keep components small and focused
+- Separate business logic from UI components
+
+### Security & Privacy
+- Never log sensitive data (amounts, descriptions, etc.)
+- Use Web Crypto API for all encryption
+- Implement proper key derivation (PBKDF2)
+- Validate all user inputs
+- Use secure random generation for IDs
+
+### Bitcoin/Sats Handling
+- Always use integers for sat amounts (no floating point)
+- Implement proper sat/BTC conversion utilities
+- Use BigInt for large sat amounts if needed
+- Validate Bitcoin addresses if used
+- Handle sat precision correctly in UI
+
+### Account Management (Phase 2)
+- All transactions must be linked to a specific account
+- Account balances calculated from transaction history
+- Support multiple account types (checking, savings, investment, cash)
+- Implement account transfer functionality
+- Validate account balance consistency
+
+### Monthly Budgeting (Phase 3)
+- Budget periods are calendar months
+- Unspent category funds roll over to next month
+- Overspending creates negative balances that must be covered
+- Monthly allocation workflow for assigning available funds
+- Historical tracking across budget periods
+
+### Performance
+- Implement proper loading states
+- Use React.lazy for code splitting
+- Optimize bundle size
+- Implement proper caching strategies
+- Use IndexedDB efficiently
+
+### Testing
+- Write unit tests for utility functions
+- Test components with React Testing Library
+- Mock external dependencies
+- Test error scenarios
+- Test encryption/decryption functions
+
+## Naming Conventions
+- Components: PascalCase (e.g., `BudgetCategory`)
+- Files: kebab-case (e.g., `budget-category.tsx`)
+- Functions: camelCase (e.g., `calculateAvailable`)
+- Constants: SCREAMING_SNAKE_CASE (e.g., `SATS_PER_BTC`)
+- CSS classes: Follow Tailwind conventions
+
+## Architecture Principles
+- **Privacy First**: All data stays on client, encrypted at rest
+- **Offline First**: App should work without internet
+- **Account-Based**: All transactions tied to specific Bitcoin accounts
+- **Monthly Cycles**: Budget periods with rollover logic for unspent funds
+- **Envelope Method**: Category-based budget allocation and tracking
+- **Progressive Enhancement**: Core features work without JavaScript
+- **Responsive Design**: Mobile-first approach
+- **Accessibility**: Follow WCAG guidelines
+- **Performance**: Fast loading and smooth interactions
+
+## Error Handling
+- Use proper error boundaries
+- Implement graceful degradation
+- Provide meaningful error messages
+- Log errors appropriately (without sensitive data)
+- Handle network failures gracefully
+
+## Data Management
+- Use TanStack Query for server state (if any)
+- Use React state for UI state
+- Implement proper data validation
+- Use proper serialization for IndexedDB
+- Implement data migration strategies
+
+## Security Guidelines
+- Validate all inputs
+- Sanitize data before storage
+- Use proper CORS headers if needed
+- Implement CSP headers
+- Use HTTPS in production
+- Regular security audits
+
+## Comments & Documentation
+- Use JSDoc for function documentation
+- Comment complex business logic
+- Document encryption/decryption processes
+- Maintain README with setup instructions
+- Document API interfaces
+
+## Git Practices
+- Use conventional commits
+- Keep commits atomic
+- Write descriptive commit messages
+- Use feature branches
+- Regular rebasing for clean history
+
+## Avoid
+- Floating point arithmetic for sats
+- Storing sensitive data in localStorage
+- Using `any` type in TypeScript
+- Large component files (>200 lines)
+- Inline styles (use Tailwind classes)
+- Direct DOM manipulation
+- Unhandled promises
+- Memory leaks in useEffect
+
+## Focus Areas
+- Clean, maintainable code
+- Strong typing with TypeScript
+- Privacy and security
+- Performance optimization
+- Accessibility
+- Mobile responsiveness
+- Offline functionality 

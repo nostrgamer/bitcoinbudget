@@ -1,0 +1,22 @@
+/* App-specific styles */
+.app-container {
+  @apply min-h-screen bg-background;
+}
+
+/* Loading states */
+.loading-spinner {
+  @apply animate-spin rounded-full h-8 w-8 border-b-2 border-primary;
+}
+
+/* Bitcoin-specific components */
+.bitcoin-icon {
+  @apply text-bitcoin-500;
+}
+
+.sats-amount {
+  @apply font-mono text-sats-600 font-semibold;
+}
+
+.btc-amount {
+  @apply font-mono text-bitcoin-600 font-semibold;
+} 
