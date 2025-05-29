@@ -13,7 +13,8 @@ import type {
   EncryptedData
 } from '../../types/budget'
 
-import { encryptData, decryptData, generateSecurePassword } from '../crypto/encryption'
+import { TransactionType } from '../../types/budget'
+import { encryptData, decryptData } from '../crypto/encryption'
 import { 
   addData, 
   updateData, 
@@ -250,6 +251,34 @@ export class BudgetStorageService {
       updatedAt: new Date()
     }
     
+    // Update category balance if transaction has a categoryId (and it's not a transfer)
+    if (transaction.categoryId && transaction.categoryId !== UNASSIGNED_CATEGORY_ID && !transaction.tags?.includes('transfer')) {
+      const category = await this.getCategory(transaction.categoryId)
+      if (category) {
+        // Add the transaction amount to the category balance (negative for expenses, positive for income)
+        await this.updateCategory(transaction.categoryId, {
+          currentAmount: category.currentAmount + transaction.amount
+        })
+      }
+    }
+
+    // Update account balance if transaction has an accountId (and it's not a transfer)
+    if (transaction.accountId && !transaction.tags?.includes('transfer') && !transaction.tags?.includes('account-transfer')) {
+      try {
+        // Import AccountStorage dynamically to avoid circular dependency
+        const { AccountStorage } = await import('./account-storage')
+        const accountStorage = new AccountStorage(this.encryptionPassword || 'bitcoin-budget-default-password-2024')
+        
+        const account = await accountStorage.getAccount(transaction.accountId)
+        if (account) {
+          // Add the transaction amount to the account balance (negative for expenses, positive for income)
+          await accountStorage.updateAccountBalance(transaction.accountId, account.balance + transaction.amount)
+        }
+      } catch (error) {
+        console.warn('Could not update account balance for transaction:', error)
+      }
+    }
+    
     await addData(STORES.TRANSACTIONS, transaction)
     return transaction
   }
@@ -278,11 +307,114 @@ export class BudgetStorageService {
       updatedAt: new Date()
     }
 
+    // Handle category balance changes
+    if (existing.categoryId !== updated.categoryId || existing.amount !== updated.amount) {
+      // Reverse old category balance change (if not a transfer)
+      if (existing.categoryId && existing.categoryId !== UNASSIGNED_CATEGORY_ID && !existing.tags?.includes('transfer')) {
+        const oldCategory = await this.getCategory(existing.categoryId)
+        if (oldCategory) {
+          await this.updateCategory(existing.categoryId, {
+            currentAmount: oldCategory.currentAmount - existing.amount
+          })
+        }
+      }
+
+      // Apply new category balance change (if not a transfer)
+      if (updated.categoryId && updated.categoryId !== UNASSIGNED_CATEGORY_ID && !updated.tags?.includes('transfer')) {
+        const newCategory = await this.getCategory(updated.categoryId)
+        if (newCategory) {
+          await this.updateCategory(updated.categoryId, {
+            currentAmount: newCategory.currentAmount + updated.amount
+          })
+        }
+      }
+    }
+
+    // Handle account balance changes
+    if (existing.accountId !== updated.accountId || existing.amount !== updated.amount) {
+      try {
+        // Import AccountStorage dynamically to avoid circular dependency
+        const { AccountStorage } = await import('./account-storage')
+        const accountStorage = new AccountStorage(this.encryptionPassword || 'bitcoin-budget-default-password-2024')
+
+        // Reverse old account balance change (if not a transfer)
+        if (existing.accountId && !existing.tags?.includes('transfer') && !existing.tags?.includes('account-transfer')) {
+          const oldAccount = await accountStorage.getAccount(existing.accountId)
+          if (oldAccount) {
+            await accountStorage.updateAccountBalance(existing.accountId, oldAccount.balance - existing.amount)
+          }
+        }
+
+        // Apply new account balance change (if not a transfer)
+        if (updated.accountId && !updated.tags?.includes('transfer') && !updated.tags?.includes('account-transfer')) {
+          const newAccount = await accountStorage.getAccount(updated.accountId)
+          if (newAccount) {
+            await accountStorage.updateAccountBalance(updated.accountId, newAccount.balance + updated.amount)
+          }
+        }
+      } catch (error) {
+        console.warn('Could not update account balances for transaction update:', error)
+      }
+    }
+
     await updateData(STORES.TRANSACTIONS, updated)
     return updated
   }
 
   async deleteTransaction(id: string): Promise<void> {
+    // Get the transaction to reverse any category balance changes
+    const transaction = await this.getTransaction(id)
+    if (!transaction) {
+      throw new Error('Transaction not found')
+    }
+
+    // Reverse category balance if transaction has a categoryId (and it's not a transfer)
+    if (transaction.categoryId && transaction.categoryId !== UNASSIGNED_CATEGORY_ID && !transaction.tags?.includes('transfer')) {
+      const category = await this.getCategory(transaction.categoryId)
+      if (category) {
+        // Subtract the transaction amount from the category balance (reverse the original change)
+        await this.updateCategory(transaction.categoryId, {
+          currentAmount: category.currentAmount - transaction.amount
+        })
+      }
+    }
+
+    // Reverse account balance for account-transfer transactions OR regular transactions
+    if (transaction.accountId) {
+      // For account-transfer transactions, we need to reverse the balance change
+      if (transaction.tags?.includes('account-transfer')) {
+        try {
+          // Import AccountStorage dynamically to avoid circular dependency
+          const { AccountStorage } = await import('./account-storage')
+          const accountStorage = new AccountStorage(this.encryptionPassword || 'bitcoin-budget-default-password-2024')
+          
+          const account = await accountStorage.getAccount(transaction.accountId)
+          if (account) {
+            // Subtract the transaction amount from the account balance (reverse the original change)
+            await accountStorage.updateAccountBalance(transaction.accountId, account.balance - transaction.amount)
+          }
+        } catch (error) {
+          console.warn('Could not update account balance for account-transfer deletion:', error)
+        }
+      }
+      // For regular transactions (not transfers), also reverse the balance change
+      else if (!transaction.tags?.includes('transfer')) {
+        try {
+          // Import AccountStorage dynamically to avoid circular dependency
+          const { AccountStorage } = await import('./account-storage')
+          const accountStorage = new AccountStorage(this.encryptionPassword || 'bitcoin-budget-default-password-2024')
+          
+          const account = await accountStorage.getAccount(transaction.accountId)
+          if (account) {
+            // Subtract the transaction amount from the account balance (reverse the original change)
+            await accountStorage.updateAccountBalance(transaction.accountId, account.balance - transaction.amount)
+          }
+        } catch (error) {
+          console.warn('Could not update account balance for transaction deletion:', error)
+        }
+      }
+    }
+
     await deleteData(STORES.TRANSACTIONS, id)
   }
 
@@ -302,12 +434,14 @@ export class BudgetStorageService {
         throw new Error('Destination category not found')
       }
 
-      // Create a negative transaction to reduce unassigned balance
+      // Create outgoing transaction (from source category)
       await this.createTransaction({
         amount: -input.amount,
-        description: `Transfer to ${toCategory.name}`,
+        description: input.description || 'Transfer',
         date: input.date,
-        type: 'expense' as any, // This is just for the transfer mechanism
+        type: TransactionType.EXPENSE,
+        categoryId: input.fromCategoryId,
+        accountId: 'default-account-id', // Required for Phase 2
         tags: ['transfer']
       })
 
@@ -322,19 +456,26 @@ export class BudgetStorageService {
         throw new Error('Source category not found')
       }
 
-      // Create a positive transaction to increase unassigned balance
+      // Create incoming transaction (to destination category)
       await this.createTransaction({
         amount: input.amount,
-        description: `Transfer from ${fromCategory.name}`,
+        description: input.description || 'Transfer',
         date: input.date,
-        type: 'income' as any, // This is just for the transfer mechanism
+        type: TransactionType.INCOME,
+        categoryId: input.toCategoryId,
+        accountId: 'default-account-id', // Required for Phase 2
         tags: ['transfer']
       })
 
-      // Update source category balance (allow negative balances)
-      await this.updateCategory(input.fromCategoryId, {
-        currentAmount: fromCategory.currentAmount - input.amount
-      })
+      // Update source category balance
+      if (input.fromCategoryId !== UNASSIGNED_CATEGORY_ID) {
+        const sourceCategory = await this.getCategory(input.fromCategoryId)
+        if (sourceCategory) {
+          await this.updateCategory(input.fromCategoryId, {
+            currentAmount: sourceCategory.currentAmount - input.amount
+          })
+        }
+      }
     } else {
       // Regular transfer between categories
       const [fromCategory, toCategory] = await Promise.all([
@@ -467,17 +608,42 @@ export class BudgetStorageService {
     const totalAvailable = categories.reduce((sum, cat) => sum + cat.currentAmount, 0)
     
     // Only count actual income transactions (exclude transfer-related transactions)
-    const income = transactions
-      .filter(t => t.amount > 0 && !t.tags?.includes('transfer'))
+    const transactionIncome = transactions
+      .filter(t => t.amount > 0 && !t.tags?.includes('transfer') && !t.tags?.includes('account-transfer'))
       .reduce((sum, t) => sum + t.amount, 0)
+    
+    // Get on-budget account balances and include them as available income
+    // This is a temporary solution for Phase 2 - in Phase 3 we'll have proper account integration
+    let accountIncome = 0
+    try {
+      // Import AccountStorage dynamically to avoid circular dependency
+      const { AccountStorage } = await import('./account-storage')
+      const accountStorage = new AccountStorage(this.encryptionPassword || 'bitcoin-budget-default-password-2024')
+      
+      // Get all budgets to find the current budget ID
+      const budgets = await this.getAllBudgets()
+      const currentBudget = budgets[0] // For Phase 2, we use the first budget
+      
+      if (currentBudget) {
+        const accounts = await accountStorage.getAccounts(currentBudget.id)
+        // Only include on-budget accounts
+        accountIncome = accounts
+          .filter(account => account.isOnBudget && !account.isClosed)
+          .reduce((sum, account) => sum + account.balance, 0)
+      }
+    } catch (error) {
+      console.warn('Could not load account balances for budget summary:', error)
+    }
+    
+    const totalIncome = transactionIncome + accountIncome
     
     // Only count actual expense transactions (exclude transfer-related transactions)
     const expenses = transactions
-      .filter(t => t.amount < 0 && !t.tags?.includes('transfer'))
+      .filter(t => t.amount < 0 && !t.tags?.includes('transfer') && !t.tags?.includes('account-transfer'))
       .reduce((sum, t) => sum + Math.abs(t.amount), 0)
 
     return {
-      totalIncome: income,
+      totalIncome,
       totalExpenses: expenses,
       totalAllocated,
       totalAvailable,
@@ -487,15 +653,48 @@ export class BudgetStorageService {
   }
 
   /**
-   * Get the unassigned balance (transactions without a category)
+   * Get the unassigned balance (transactions without a category + on-budget account balances - money transferred to categories)
    */
   async getUnassignedBalance(): Promise<number> {
-    const transactions = await this.getAllTransactions()
+    const [transactions, categories] = await Promise.all([
+      this.getAllTransactions(),
+      this.getAllCategories()
+    ])
     
-    // Get transactions without a categoryId (unassigned)
-    const unassignedTransactions = transactions.filter(t => !t.categoryId)
+    // Get transactions without a categoryId (unassigned) and exclude account transfers
+    const unassignedTransactions = transactions.filter(t => 
+      !t.categoryId && !t.tags?.includes('transfer') && !t.tags?.includes('account-transfer')
+    )
+    const transactionBalance = unassignedTransactions.reduce((sum, t) => sum + t.amount, 0)
     
-    return unassignedTransactions.reduce((sum, t) => sum + t.amount, 0)
+    // Get on-budget account balances and include them as unassigned funds
+    // This is a temporary solution for Phase 2 - in Phase 3 we'll have proper account integration
+    let accountBalance = 0
+    try {
+      // Import AccountStorage dynamically to avoid circular dependency
+      const { AccountStorage } = await import('./account-storage')
+      const accountStorage = new AccountStorage(this.encryptionPassword || 'bitcoin-budget-default-password-2024')
+      
+      // Get all budgets to find the current budget ID
+      const budgets = await this.getAllBudgets()
+      const currentBudget = budgets[0] // For Phase 2, we use the first budget
+      
+      if (currentBudget) {
+        const accounts = await accountStorage.getAccounts(currentBudget.id)
+        // Only include on-budget accounts
+        accountBalance = accounts
+          .filter(account => account.isOnBudget && !account.isClosed)
+          .reduce((sum, account) => sum + account.balance, 0)
+      }
+    } catch (error) {
+      console.warn('Could not load account balances for unassigned calculation:', error)
+    }
+    
+    // Calculate total money allocated to categories (this reduces unassigned balance)
+    const totalAllocatedToCategories = categories.reduce((sum, cat) => sum + cat.currentAmount, 0)
+    
+    // Unassigned = Account Balance + Unassigned Transactions - Money Allocated to Categories
+    return accountBalance + transactionBalance - totalAllocatedToCategories
   }
 
   // Utility operations
@@ -508,23 +707,57 @@ export class BudgetStorageService {
 
     // Calculate balances for each category
     for (const category of categories) {
-      // Get transactions for this category
-      const categoryTransactions = transactions.filter(t => t.categoryId === category.id)
-      const transactionBalance = categoryTransactions.reduce((sum, t) => sum + t.amount, 0)
+      let balance = 0
 
-      // Get transfers affecting this category
-      const transfersFrom = transfers.filter(t => t.fromCategoryId === category.id)
+      // Add money from transfers TO this category
       const transfersTo = transfers.filter(t => t.toCategoryId === category.id)
-      
-      const transferBalance = transfersTo.reduce((sum, t) => sum + t.amount, 0) - 
-                             transfersFrom.reduce((sum, t) => sum + t.amount, 0)
+      balance += transfersTo.reduce((sum, t) => sum + t.amount, 0)
 
-      const totalBalance = transactionBalance + transferBalance
+      // Subtract money from transfers FROM this category
+      const transfersFrom = transfers.filter(t => t.fromCategoryId === category.id)
+      balance -= transfersFrom.reduce((sum, t) => sum + t.amount, 0)
+
+      // Add/subtract regular transactions (not transfer-related)
+      const categoryTransactions = transactions.filter(t => 
+        t.categoryId === category.id && !t.tags?.includes('transfer') && !t.tags?.includes('account-transfer')
+      )
+      balance += categoryTransactions.reduce((sum, t) => sum + t.amount, 0)
 
       // Update category if balance is different
-      if (category.currentAmount !== totalBalance) {
-        await this.updateCategory(category.id, { currentAmount: totalBalance })
+      if (category.currentAmount !== balance) {
+        await this.updateCategory(category.id, { currentAmount: balance })
       }
+    }
+  }
+
+  async recalculateAccountBalances(): Promise<void> {
+    try {
+      // Import AccountStorage dynamically to avoid circular dependency
+      const { AccountStorage } = await import('./account-storage')
+      const accountStorage = new AccountStorage(this.encryptionPassword || 'bitcoin-budget-default-password-2024')
+      
+      // Get all budgets to find accounts
+      const budgets = await this.getAllBudgets()
+      const transactions = await this.getAllTransactions()
+      
+      for (const budget of budgets) {
+        const accounts = await accountStorage.getAccounts(budget.id)
+        
+        for (const account of accounts) {
+          // Calculate balance from all transactions for this account (including account transfers)
+          const accountTransactions = transactions.filter(t => 
+            t.accountId === account.id && !t.tags?.includes('transfer')
+          )
+          const calculatedBalance = accountTransactions.reduce((sum, t) => sum + t.amount, 0)
+          
+          // Update account if balance is different
+          if (account.balance !== calculatedBalance) {
+            await accountStorage.updateAccountBalance(account.id, calculatedBalance)
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Could not recalculate account balances:', error)
     }
   }
 

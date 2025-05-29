@@ -201,4 +201,25 @@ export function debounce<T extends (...args: any[]) => any>(
     clearTimeout(timeout)
     timeout = setTimeout(() => func(...args), wait)
   }
+}
+
+/**
+ * Parse user input for sats amount
+ * Supports formats like "1000", "1000 sats", "0.001 BTC", "₿0.001"
+ */
+export function parseSatsInput(input: string): number {
+  if (!input || typeof input !== 'string') return 0
+  
+  // Remove whitespace and convert to lowercase
+  const cleaned = input.trim().toLowerCase()
+  
+  // Handle BTC formats
+  if (cleaned.includes('btc') || cleaned.includes('₿')) {
+    const btcAmount = parseFloat(cleaned.replace(/[^\d.-]/g, ''))
+    return isNaN(btcAmount) ? 0 : Math.round(btcAmount * SATS_PER_BTC)
+  }
+  
+  // Handle sats format (remove "sats" suffix and any commas)
+  const satsAmount = parseFloat(cleaned.replace(/[^\d.-]/g, ''))
+  return isNaN(satsAmount) ? 0 : Math.round(satsAmount)
 } 

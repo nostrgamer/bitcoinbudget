@@ -1,6 +1,7 @@
 import { budgetStorage } from './storage/budget-storage'
 import { generateCategoryColor } from './bitcoin-utils'
 import { TransactionType, type BudgetCategory } from '../types/budget'
+import { AccountStorage } from './storage/account-storage'
 
 /**
  * Creates sample data for testing the application
@@ -8,13 +9,38 @@ import { TransactionType, type BudgetCategory } from '../types/budget'
 export async function createSampleData(): Promise<void> {
   try {
     // Check if we already have data
+    const existingBudgets = await budgetStorage.getAllBudgets()
     const existingCategories = await budgetStorage.getAllCategories()
-    if (existingCategories.length > 0) {
+    if (existingBudgets.length > 0 || existingCategories.length > 0) {
       console.log('Sample data already exists, skipping creation')
       return
     }
 
     console.log('Creating sample data...')
+
+    // Create a default budget first
+    const budget = await budgetStorage.createBudget({
+      name: 'My Bitcoin Budget',
+      description: 'Personal Bitcoin budget using envelope methodology',
+      isActive: true,
+      totalBalance: 0,
+      unassignedBalance: 0,
+      categories: []
+    })
+
+    console.log('Created budget:', budget.id)
+
+    // Create a default account
+    const accountStorage = new AccountStorage('bitcoin-budget-default-password-2024')
+    const defaultAccount = await accountStorage.createAccount(budget.id, {
+      name: 'Main Bitcoin Wallet',
+      type: 'spending',
+      description: 'Primary Bitcoin wallet for daily transactions',
+      isOnBudget: true,
+      initialBalance: 5000000, // 5M sats starting balance
+    })
+
+    console.log('Created default account:', defaultAccount.id)
 
     // Create sample categories
     const categories = [
@@ -64,47 +90,52 @@ export async function createSampleData(): Promise<void> {
       throw new Error('Failed to create all categories')
     }
 
-    // Create sample transactions
-    const transactions = [
+    // Sample transactions
+    const sampleTransactions = [
       {
-        categoryId: createdCategories[0]!.id, // Food
-        amount: 50000, // 50k sats income
-        description: 'Bitcoin payment received',
-        date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days ago
-        type: TransactionType.INCOME
+        categoryId: createdCategories[0]?.id || null, // Groceries
+        amount: -25000, // 25,000 sats expense
+        description: 'Weekly grocery shopping',
+        date: new Date(2024, 0, 15),
+        type: TransactionType.EXPENSE,
+        accountId: defaultAccount.id,
       },
       {
-        categoryId: createdCategories[0]!.id, // Food
-        amount: -25000, // 25k sats expense
-        description: 'Grocery shopping',
-        date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago
-        type: TransactionType.EXPENSE
+        categoryId: createdCategories[1]?.id || null, // Transportation
+        amount: -8000, // 8,000 sats expense
+        description: 'Bus fare',
+        date: new Date(2024, 0, 16),
+        type: TransactionType.EXPENSE,
+        accountId: defaultAccount.id,
       },
       {
-        categoryId: createdCategories[1]!.id, // Transportation
-        amount: -15000, // 15k sats expense
-        description: 'Gas station',
-        date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000), // 3 days ago
-        type: TransactionType.EXPENSE
+        categoryId: createdCategories[2]?.id || null, // Entertainment
+        amount: -15000, // 15,000 sats expense
+        description: 'Movie tickets',
+        date: new Date(2024, 0, 17),
+        type: TransactionType.EXPENSE,
+        accountId: defaultAccount.id,
       },
       {
-        categoryId: createdCategories[2]!.id, // Entertainment
-        amount: -8000, // 8k sats expense
-        description: 'Netflix subscription',
-        date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
-        type: TransactionType.EXPENSE
+        categoryId: null, // Unassigned income
+        amount: 500000, // 500,000 sats income
+        description: 'Freelance payment',
+        date: new Date(2024, 0, 10),
+        type: TransactionType.INCOME,
+        accountId: defaultAccount.id,
       },
       {
-        categoryId: null, // Unassigned
-        amount: 100000, // 100k sats income
-        description: 'Freelance work payment',
-        date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // 1 day ago
-        type: TransactionType.INCOME
-      }
+        categoryId: null, // Unassigned income
+        amount: 200000, // 200,000 sats income
+        description: 'Side project payment',
+        date: new Date(2024, 0, 12),
+        type: TransactionType.INCOME,
+        accountId: defaultAccount.id,
+      },
     ]
 
     // Create transactions
-    for (const transactionData of transactions) {
+    for (const transactionData of sampleTransactions) {
       await budgetStorage.createTransaction(transactionData)
     }
 
