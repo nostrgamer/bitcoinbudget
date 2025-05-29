@@ -7,7 +7,7 @@ import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Switch } from '../ui/switch';
 import { Loader2 } from 'lucide-react';
-import { Account, CreateAccountData, UpdateAccountData, ACCOUNT_TYPES } from '../../types/account';
+import { Account, CreateAccountData, UpdateAccountData, ACCOUNT_TYPES, AccountType } from '../../types/account';
 import { useAccountMutations } from '../../hooks/use-accounts';
 import { formatSats, parseSatsInput } from '../../lib/bitcoin-utils';
 
@@ -19,9 +19,15 @@ interface AccountFormModalProps {
 }
 
 export function AccountFormModal({ isOpen, onClose, budgetId, account }: AccountFormModalProps) {
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    name: string;
+    type: AccountType;
+    description: string;
+    isOnBudget: boolean;
+    initialBalance: string;
+  }>({
     name: '',
-    type: 'checking' as const,
+    type: 'spending',
     description: '',
     isOnBudget: true,
     initialBalance: '',
@@ -35,6 +41,7 @@ export function AccountFormModal({ isOpen, onClose, budgetId, account }: Account
   useEffect(() => {
     if (isOpen) {
       if (account) {
+        // Editing existing account
         setFormData({
           name: account.name,
           type: account.type,
@@ -43,46 +50,61 @@ export function AccountFormModal({ isOpen, onClose, budgetId, account }: Account
           initialBalance: account.balance > 0 ? formatSats(account.balance) : '',
         });
       } else {
+        // Creating new account - ensure form is completely reset
         setFormData({
           name: '',
-          type: 'checking',
+          type: 'spending',
           description: '',
           isOnBudget: true,
           initialBalance: '',
         });
       }
+    } else {
+      // Modal is closed - reset form to prevent stale data
+      setFormData({
+        name: '',
+        type: 'spending',
+        description: '',
+        isOnBudget: true,
+        initialBalance: '',
+      });
     }
   }, [isOpen, account]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    console.log('Account form submitted:', { formData, budgetId, isEditing });
+    
     try {
       if (isEditing && account) {
         const updates: UpdateAccountData = {
           name: formData.name,
           type: formData.type,
-          description: formData.description || undefined,
+          ...(formData.description.trim() && { description: formData.description.trim() }),
           isOnBudget: formData.isOnBudget,
         };
+        console.log('Updating account:', updates);
         await updateAccountAsync({ accountId: account.id, updates });
       } else {
         const data: CreateAccountData = {
           name: formData.name,
           type: formData.type,
-          description: formData.description || undefined,
+          ...(formData.description.trim() && { description: formData.description.trim() }),
           isOnBudget: formData.isOnBudget,
           initialBalance: formData.initialBalance ? parseSatsInput(formData.initialBalance) : 0,
         };
+        console.log('Creating account:', data);
         await createAccountAsync({ budgetId, data });
       }
+      console.log('Account operation successful');
       onClose();
     } catch (error) {
       console.error('Failed to save account:', error);
     }
   };
 
-  const handleInputChange = (field: string, value: string | boolean) => {
+  const handleInputChange = (field: keyof typeof formData, value: string | boolean | AccountType) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 

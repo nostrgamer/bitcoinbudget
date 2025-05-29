@@ -1,24 +1,21 @@
 import { useState, useEffect } from 'react'
-import { X, Save, TrendingUp, TrendingDown, Calendar } from 'lucide-react'
+import { X, Save, TrendingUp, TrendingDown, Calendar, Wallet } from 'lucide-react'
 import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
 
-import { useTransactions, useCategories } from '../hooks/use-budget-storage'
-import { parseToSats, isValidSatsInput, formatDate } from '../lib/bitcoin-utils'
+import { useTransactions, useCategories, useBudget } from '../hooks/use-budget-storage'
+import { useAccounts } from '../hooks/use-accounts'
+import { parseToSats, isValidSatsInput, formatSats } from '../lib/bitcoin-utils'
 import { TransactionType, type Transaction, type CreateTransactionInput, type UpdateTransactionInput } from '../types/budget'
 
-// Form validation schema
-const transactionSchema = z.object({
-  description: z.string().min(1, 'Description is required').max(200, 'Description must be 200 characters or less'),
-  amount: z.string().min(1, 'Amount is required').refine(isValidSatsInput, 'Invalid amount format'),
-  categoryId: z.string().nullable(),
-  type: z.nativeEnum(TransactionType),
-  date: z.string().min(1, 'Date is required'),
-  tags: z.string().optional(),
-})
-
-type TransactionFormData = z.infer<typeof transactionSchema>
+interface TransactionFormData {
+  type: TransactionType
+  description: string
+  categoryId: string | null
+  accountId: string
+  amount: string
+  date: string
+  tags?: string
+}
 
 interface TransactionFormModalProps {
   isOpen: boolean
@@ -37,93 +34,85 @@ export default function TransactionFormModal({
 }: TransactionFormModalProps) {
   const { createTransactionAsync, updateTransactionAsync, isCreating, isUpdating } = useTransactions()
   const { categories } = useCategories()
+  const { data: budget } = useBudget()
+  const { data: accounts = [] } = useAccounts(budget?.id || '')
   
   const [selectedType, setSelectedType] = useState<TransactionType>(
     transaction?.type || defaultType
   )
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    setValue,
-    watch,
-    formState: { errors, isValid }
-  } = useForm<TransactionFormData>({
-    resolver: zodResolver(transactionSchema),
+  const form = useForm<TransactionFormData>({
     defaultValues: {
-      description: transaction?.description || '',
-      amount: transaction ? Math.abs(transaction.amount).toString() : '',
-      categoryId: transaction?.categoryId || defaultCategoryId,
       type: transaction?.type || defaultType,
-      date: transaction ? transaction.date.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      description: transaction?.description || '',
+      amount: transaction ? formatSats(Math.abs(transaction.amount)) : '',
+      categoryId: transaction?.categoryId || defaultCategoryId || null,
+      date: transaction?.date ? transaction.date.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
       tags: transaction?.tags?.join(', ') || '',
-    }
+      accountId: transaction?.accountId || (accounts.length > 0 ? accounts[0].id : ''),
+    },
   })
-
-  const watchedType = watch('type')
 
   // Update form when transaction changes (for editing)
   useEffect(() => {
     if (transaction) {
-      reset({
+      form.reset({
         description: transaction.description,
-        amount: Math.abs(transaction.amount).toString(),
+        amount: formatSats(Math.abs(transaction.amount)),
         categoryId: transaction.categoryId,
         type: transaction.type,
         date: transaction.date.toISOString().split('T')[0],
         tags: transaction.tags?.join(', ') || '',
+        accountId: transaction.accountId || (accounts.length > 0 ? accounts[0].id : ''),
       })
       setSelectedType(transaction.type)
     } else {
-      reset({
+      form.reset({
         description: '',
         amount: '',
         categoryId: defaultCategoryId,
         type: defaultType,
         date: new Date().toISOString().split('T')[0],
         tags: '',
+        accountId: accounts.length > 0 ? accounts[0].id : '',
       })
       setSelectedType(defaultType)
     }
-  }, [transaction, reset, defaultCategoryId, defaultType])
+  }, [transaction, form, defaultCategoryId, defaultType, accounts])
 
   // Update type in form when selectedType changes
   useEffect(() => {
-    setValue('type', selectedType)
-  }, [selectedType, setValue])
+    form.setValue('type', selectedType)
+  }, [selectedType, form])
 
   const onSubmit = async (data: TransactionFormData) => {
     try {
       const amount = parseToSats(data.amount)
-      const finalAmount = data.type === TransactionType.INCOME ? amount : -amount
-      const transactionDate = new Date(data.date)
-      const tags = data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(Boolean) : undefined
-      
+      const tags = data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(Boolean) : []
+
       if (transaction) {
-        // Editing existing transaction
         const updates: UpdateTransactionInput = {
           description: data.description,
-          amount: finalAmount,
-          categoryId: data.categoryId || null,
+          amount: data.type === TransactionType.EXPENSE ? -Math.abs(amount) : Math.abs(amount),
+          categoryId: data.categoryId,
           type: data.type,
-          date: transactionDate,
-          tags,
+          date: new Date(data.date),
+          accountId: data.accountId,
+          ...(tags.length > 0 && { tags }),
         }
         await updateTransactionAsync({ id: transaction.id, updates })
       } else {
-        // Creating new transaction
         const newTransaction: CreateTransactionInput = {
           description: data.description,
-          amount: finalAmount,
-          categoryId: data.categoryId || null,
+          amount: data.type === TransactionType.EXPENSE ? -Math.abs(amount) : Math.abs(amount),
+          categoryId: data.categoryId,
           type: data.type,
-          date: transactionDate,
-          tags,
+          date: new Date(data.date),
+          accountId: data.accountId,
+          ...(tags.length > 0 && { tags }),
         }
         await createTransactionAsync(newTransaction)
       }
-      
       onClose()
     } catch (error) {
       console.error('Failed to save transaction:', error)
@@ -156,7 +145,7 @@ export default function TransactionFormModal({
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="p-6 space-y-4">
           {/* Transaction Type */}
           <div>
             <label className="block text-sm font-medium mb-2">
@@ -188,7 +177,7 @@ export default function TransactionFormModal({
                 <span>Expense</span>
               </button>
             </div>
-            <input {...register('type')} type="hidden" />
+            <input {...form.register('type')} type="hidden" />
           </div>
 
           {/* Description */}
@@ -197,14 +186,14 @@ export default function TransactionFormModal({
               Description *
             </label>
             <input
-              {...register('description')}
+              {...form.register('description')}
               type="text"
               id="description"
               placeholder={selectedType === TransactionType.INCOME ? 'e.g., Freelance payment' : 'e.g., Coffee shop'}
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
             />
-            {errors.description && (
-              <p className="text-red-500 text-sm mt-1">{errors.description.message}</p>
+            {form.formState.errors.description && (
+              <p className="text-red-500 text-sm mt-1">{form.formState.errors.description.message}</p>
             )}
           </div>
 
@@ -214,14 +203,14 @@ export default function TransactionFormModal({
               Amount *
             </label>
             <input
-              {...register('amount')}
+              {...form.register('amount')}
               type="text"
               id="amount"
               placeholder="e.g., 50000 sats or 0.0005 BTC"
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
             />
-            {errors.amount && (
-              <p className="text-red-500 text-sm mt-1">{errors.amount.message}</p>
+            {form.formState.errors.amount && (
+              <p className="text-red-500 text-sm mt-1">{form.formState.errors.amount.message}</p>
             )}
             <p className="text-xs text-muted-foreground mt-1">
               Enter amount in sats (e.g., 50000) or BTC (e.g., 0.0005)
@@ -234,7 +223,7 @@ export default function TransactionFormModal({
               Category
             </label>
             <select
-              {...register('categoryId')}
+              {...form.register('categoryId')}
               id="categoryId"
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
             >
@@ -250,6 +239,34 @@ export default function TransactionFormModal({
             </p>
           </div>
 
+          {/* Account */}
+          <div>
+            <label htmlFor="accountId" className="block text-sm font-medium mb-2">
+              Account *
+            </label>
+            {accounts.length > 0 ? (
+              <select
+                {...form.register('accountId')}
+                id="accountId"
+                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                required
+              >
+                {accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name} ({account.type}) - {formatSats(account.balance)} sats
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="w-full px-3 py-2 border rounded-lg bg-muted text-muted-foreground">
+                No accounts available. Please create an account first.
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground mt-1">
+              Select which account this transaction belongs to
+            </p>
+          </div>
+
           {/* Date */}
           <div>
             <label htmlFor="date" className="block text-sm font-medium mb-2">
@@ -257,15 +274,15 @@ export default function TransactionFormModal({
             </label>
             <div className="relative">
               <input
-                {...register('date')}
+                {...form.register('date')}
                 type="date"
                 id="date"
                 className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               />
               <Calendar className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             </div>
-            {errors.date && (
-              <p className="text-red-500 text-sm mt-1">{errors.date.message}</p>
+            {form.formState.errors.date && (
+              <p className="text-red-500 text-sm mt-1">{form.formState.errors.date.message}</p>
             )}
           </div>
 
@@ -275,7 +292,7 @@ export default function TransactionFormModal({
               Tags
             </label>
             <input
-              {...register('tags')}
+              {...form.register('tags')}
               type="text"
               id="tags"
               placeholder="e.g., food, entertainment, work"
@@ -297,13 +314,18 @@ export default function TransactionFormModal({
             </button>
             <button
               type="submit"
-              disabled={!isValid || isCreating || isUpdating}
+              disabled={!form.formState.isValid || isCreating || isUpdating || accounts.length === 0}
               className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
             >
               {isCreating || isUpdating ? (
                 <>
                   <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
                   {transaction ? 'Updating...' : 'Adding...'}
+                </>
+              ) : accounts.length === 0 ? (
+                <>
+                  <Wallet className="h-4 w-4 mr-2" />
+                  Create Account First
                 </>
               ) : (
                 <>

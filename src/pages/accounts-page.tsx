@@ -3,16 +3,19 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
-import { Plus, Search, Wallet } from 'lucide-react';
+import { Plus, Search, Wallet, ArrowLeft, ArrowRightLeft } from 'lucide-react';
 import { useAccounts } from '../hooks/use-accounts';
 import { useBudget } from '../hooks/use-budget-storage';
 import { AccountCard } from '../components/accounts/account-card';
 import { AccountFormModal } from '../components/accounts/account-form-modal';
+import { AccountTransferModal } from '../components/accounts/account-transfer-modal';
 import { Account, ACCOUNT_TYPES } from '../types/account';
 import { formatSats } from '../lib/bitcoin-utils';
+import { useNavigate } from 'react-router-dom';
 
 export function AccountsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -20,6 +23,8 @@ export function AccountsPage() {
 
   const { data: budget } = useBudget();
   const { data: accounts = [], isLoading } = useAccounts(budget?.id || '');
+
+  console.log('AccountsPage - Budget:', budget, 'Budget ID:', budget?.id);
 
   // Filter and sort accounts
   const filteredAndSortedAccounts = accounts
@@ -57,6 +62,8 @@ export function AccountsPage() {
     .reduce((sum, account) => sum + account.balance, 0);
   const openAccounts = accounts.filter(account => !account.isClosed).length;
 
+  const navigate = useNavigate();
+
   if (isLoading) {
     return (
       <div className="container mx-auto px-4 py-8">
@@ -74,16 +81,34 @@ export function AccountsPage() {
     <div className="container mx-auto px-4 py-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold">Accounts</h1>
-          <p className="text-muted-foreground mt-1">
-            Manage your Bitcoin accounts and wallets
-          </p>
+        <div className="flex items-center space-x-4">
+          <button
+            onClick={() => navigate('/budget')}
+            className="p-2 hover:bg-muted rounded-lg transition-colors"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div>
+            <h1 className="text-3xl font-bold">Accounts</h1>
+            <p className="text-muted-foreground mt-1">
+              Manage your Bitcoin accounts and wallets
+            </p>
+          </div>
         </div>
-        <Button onClick={() => setIsCreateModalOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Account
-        </Button>
+        <div className="flex space-x-2">
+          <Button 
+            onClick={() => setIsTransferModalOpen(true)}
+            variant="outline"
+            disabled={accounts.length < 2}
+          >
+            <ArrowRightLeft className="mr-2 h-4 w-4" />
+            Transfer
+          </Button>
+          <Button onClick={() => setIsCreateModalOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Account
+          </Button>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -224,6 +249,12 @@ export function AccountsPage() {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         budgetId={budget?.id || ''}
+      />
+
+      {/* Transfer Modal */}
+      <AccountTransferModal
+        isOpen={isTransferModalOpen}
+        onClose={() => setIsTransferModalOpen(false)}
       />
     </div>
   );

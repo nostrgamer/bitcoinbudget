@@ -1,20 +1,24 @@
 import { useState, useEffect } from 'react';
 
-// For now, we'll use a simple password. In a real app, this would come from user authentication
-const DEFAULT_PASSWORD = 'bitcoin-budget-password';
+// For Phase 2, we'll use a default password
+// In Phase 3, this will be replaced with proper user authentication
+const DEFAULT_PASSWORD = 'bitcoin-budget-default-password-2024';
 
 export function usePassword() {
   const [password, setPassword] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // For now, we'll use the default password
-    // In Phase 3, this could be enhanced with proper user authentication
+    // For now, automatically set the default password
+    // In Phase 3, this will check for stored credentials or prompt for login
     setPassword(DEFAULT_PASSWORD);
+    setIsLoading(false);
   }, []);
 
   return {
     password,
+    isLoading,
     setPassword,
-    isReady: !!password,
+    hasPassword: !!password,
   };
 } 

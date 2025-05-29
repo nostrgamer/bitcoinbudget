@@ -3,7 +3,7 @@ import { Bitcoin, Plus, Settings, ArrowLeft, Loader2, ArrowRight, MoreVertical, 
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 
-import { useBudgetStorageInit, useCategories, useTransactions, useTransfers, useBudgetSummary, useDataManagement } from '../hooks/use-budget-storage'
+import { useBudgetStorageInit, useCategories, useTransactions, useTransfers, useBudgetSummary, useDataManagement, useUnassignedBalance } from '../hooks/use-budget-storage'
 import { formatSats, formatBTC } from '../lib/bitcoin-utils'
 import { createSampleData } from '../lib/sample-data'
 import { UNASSIGNED_CATEGORY_ID } from '../lib/storage/budget-storage'
@@ -28,13 +28,13 @@ const BudgetPage = () => {
   const { transactions, isLoading: transactionsLoading } = useTransactions()
   const { transfers, isLoading: transfersLoading } = useTransfers()
   const { summary, isLoading: summaryLoading } = useBudgetSummary()
-  const { clearAllData, exportData } = useDataManagement()
+  const { clearAllData, exportData, recalculateBalances } = useDataManagement()
+  const { unassignedBalance } = useUnassignedBalance()
 
   const isLoading = storageLoading || categoriesLoading || transactionsLoading || summaryLoading || transfersLoading
 
   // Calculate total available sats
   const totalAvailable = summary?.totalAvailable ?? 0
-  const unassignedBalance = summary ? (summary.totalIncome - summary.totalExpenses - summary.totalAvailable) : 0
 
   // Get recent transactions (last 5) - exclude transfer-related transactions
   const recentTransactions = transactions
@@ -138,6 +138,17 @@ const BudgetPage = () => {
                     >
                       <Plus className="h-4 w-4" />
                       <span>New Budget</span>
+                    </button>
+                    <button
+                      onClick={async () => {
+                        await recalculateBalances()
+                        toast.success('Category balances recalculated')
+                        setShowSettingsMenu(false)
+                      }}
+                      className="w-full px-4 py-3 text-left hover:bg-muted flex items-center space-x-3 text-sm"
+                    >
+                      <Settings className="h-4 w-4" />
+                      <span>Fix Balances</span>
                     </button>
                     <button
                       onClick={() => {
@@ -292,10 +303,22 @@ const BudgetPage = () => {
               // Show categories
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {activeCategories.map((category) => {
+                  // Calculate expenses for this category
+                  const categoryExpenses = transactions
+                    .filter(t => t.categoryId === category.id && t.amount < 0 && !t.tags?.includes('transfer'))
+                    .reduce((sum, t) => sum + Math.abs(t.amount), 0)
+                  
+                  // Allocated = current amount + expenses (what was originally put in)
+                  const allocated = category.currentAmount + categoryExpenses
+                  
+                  // Remaining = current amount (what's left to spend)
+                  const remaining = category.currentAmount
+                  
+                  // Progress based on target vs allocated
                   const progress = category.targetAmount > 0 
-                    ? (category.currentAmount / category.targetAmount) * 100 
+                    ? (allocated / category.targetAmount) * 100 
                     : 0
-                  const isOverBudget = category.currentAmount > category.targetAmount
+                  const isOverBudget = allocated > category.targetAmount
                   
                   return (
                     <div key={category.id} className="p-4 border rounded-lg bg-card hover:shadow-md transition-shadow">
@@ -309,15 +332,15 @@ const BudgetPage = () => {
                       
                       <div className="space-y-2">
                         <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Current</span>
+                          <span className="text-muted-foreground">Allocated</span>
                           <span className="font-mono">
-                            {formatSats(category.currentAmount)} sats
+                            {formatSats(allocated)} sats
                           </span>
                         </div>
                         <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Target</span>
+                          <span className="text-muted-foreground">Remaining</span>
                           <span className="font-mono">
-                            {formatSats(category.targetAmount)} sats
+                            {formatSats(remaining)} sats
                           </span>
                         </div>
                         
@@ -332,7 +355,7 @@ const BudgetPage = () => {
                         </div>
                         
                         <div className="text-xs text-muted-foreground">
-                          {progress.toFixed(1)}% of target
+                          {progress.toFixed(1)}% of target ({formatSats(category.targetAmount)} sats)
                           {isOverBudget && (
                             <span className="text-red-500 ml-1">(Over budget)</span>
                           )}

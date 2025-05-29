@@ -3,17 +3,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 
 import { budgetStorage } from '../lib/storage/budget-storage'
-import type { 
-  Budget, 
-  BudgetCategory, 
-  Transaction, 
-  Transfer, 
-  BudgetSummary,
+import type {
+  Budget,
   CreateBudgetCategoryInput,
   UpdateBudgetCategoryInput,
   CreateTransactionInput,
   UpdateTransactionInput,
-  CreateTransferInput
+  CreateTransferInput,
 } from '../types/budget'
 
 // Query keys for React Query
@@ -210,6 +206,8 @@ export function useTransactions() {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.categories })
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.summary })
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.unassignedBalance })
+      // Invalidate account queries since account balances may have changed
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
       toast.success('Transaction created successfully')
     },
     onError: (error) => {
@@ -225,6 +223,8 @@ export function useTransactions() {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.categories })
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.summary })
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.unassignedBalance })
+      // Invalidate account queries since account balances may have changed
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
       toast.success('Transaction updated successfully')
     },
     onError: (error) => {
@@ -239,6 +239,8 @@ export function useTransactions() {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.categories })
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.summary })
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.unassignedBalance })
+      // Invalidate account queries since account balances may have changed
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
       toast.success('Transaction deleted successfully')
     },
     onError: (error) => {
@@ -301,44 +303,36 @@ export function useUnassignedBalance() {
  */
 export function useDataManagement() {
   const queryClient = useQueryClient()
+  
+  const clearAllData = async () => {
+    await budgetStorage.clearAllData()
+    queryClient.clear()
+  }
+  
+  const exportData = async () => {
+    const data = await budgetStorage.exportData()
+    const blob = new Blob([data], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `bitcoin-budget-${new Date().toISOString().split('T')[0]}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
 
-  const exportDataMutation = useMutation({
-    mutationFn: () => budgetStorage.exportData(),
-    onSuccess: (data) => {
-      // Create and download file
-      const blob = new Blob([data], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `bitcoin-budget-export-${new Date().toISOString().split('T')[0]}.json`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-      
-      toast.success('Data exported successfully')
-    },
-    onError: (error) => {
-      toast.error(`Failed to export data: ${error.message}`)
-    },
-  })
-
-  const clearDataMutation = useMutation({
-    mutationFn: () => budgetStorage.clearAllData(),
-    onSuccess: () => {
-      queryClient.clear()
-      toast.success('All data cleared successfully')
-    },
-    onError: (error) => {
-      toast.error(`Failed to clear data: ${error.message}`)
-    },
-  })
-
+  const recalculateBalances = async () => {
+    await budgetStorage.recalculateCategoryBalances()
+    await budgetStorage.recalculateAccountBalances()
+    // Invalidate all queries to refresh the UI
+    queryClient.invalidateQueries()
+  }
+  
   return {
-    exportData: exportDataMutation.mutate,
-    clearAllData: clearDataMutation.mutate,
-    isExporting: exportDataMutation.isPending,
-    isClearing: clearDataMutation.isPending,
+    clearAllData,
+    exportData,
+    recalculateBalances
   }
 }
 
@@ -395,5 +389,44 @@ export function useTransfers() {
     deleteTransferAsync: deleteTransferMutation.mutateAsync,
     isCreating: createTransferMutation.isPending,
     isDeleting: deleteTransferMutation.isPending,
+  }
+}
+
+/**
+ * Hook for getting the current active budget
+ */
+export function useBudget() {
+  const queryClient = useQueryClient()
+  
+  const budgetsQuery = useQuery({
+    queryKey: QUERY_KEYS.budgets,
+    queryFn: async () => {
+      const budgets = await budgetStorage.getAllBudgets()
+      
+      // If no budgets exist, create a default one
+      if (budgets.length === 0) {
+        const defaultBudget = await budgetStorage.createBudget({
+          name: 'My Bitcoin Budget',
+          description: 'Personal Bitcoin budget using envelope methodology',
+          isActive: true,
+          totalBalance: 0,
+          unassignedBalance: 0,
+          categories: []
+        })
+        return [defaultBudget]
+      }
+      
+      return budgets
+    },
+    staleTime: 1000 * 60 * 5,
+  })
+
+  // For now, return the first budget (in Phase 3 we'll have proper budget selection)
+  const activeBudget = budgetsQuery.data?.[0]
+
+  return {
+    data: activeBudget,
+    isLoading: budgetsQuery.isLoading,
+    error: budgetsQuery.error,
   }
 } 

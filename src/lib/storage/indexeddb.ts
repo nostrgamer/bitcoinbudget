@@ -247,7 +247,10 @@ export async function getDataByIndex<T extends keyof DBSchema>(
     const transaction = db.transaction([storeName], 'readonly')
     const store = transaction.objectStore(storeName)
     const index = store.index(indexName)
-    const request = index.getAll(value)
+    
+    // Convert boolean to string for IndexedDB compatibility
+    const indexValue = typeof value === 'boolean' ? value.toString() : value
+    const request = index.getAll(indexValue)
     
     request.onerror = () => {
       reject(new Error(`Failed to get data by index from ${storeName}: ${request.error?.message}`))

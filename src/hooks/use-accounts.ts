@@ -107,12 +107,48 @@ export function useReorderAccounts() {
     mutationFn: async ({ budgetId, accountIds }: { budgetId: string; accountIds: string[] }) => {
       if (!password) throw new Error('Password required');
       const storage = new AccountStorage(password);
-      await storage.reorderAccounts(budgetId, accountIds);
-      return budgetId;
+      return storage.reorderAccounts(budgetId, accountIds);
     },
-    onSuccess: (budgetId) => {
-      // Invalidate accounts list to refetch with new order
+    onSuccess: (_, { budgetId }) => {
+      // Invalidate accounts list
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.accounts(budgetId) });
+    },
+  });
+}
+
+export function useTransferBetweenAccounts() {
+  const { password } = usePassword();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: {
+      fromAccountId: string;
+      toAccountId: string;
+      amount: number;
+      description?: string;
+      date: Date;
+    }) => {
+      if (!password) throw new Error('Password required');
+      const storage = new AccountStorage(password);
+      return storage.transferBetweenAccounts(data);
+    },
+    onSuccess: (result, variables) => {
+      // Invalidate accounts queries for both accounts
+      const fromAccount = queryClient.getQueryData<Account[]>(QUERY_KEYS.accounts(''))?.find(a => a.id === variables.fromAccountId);
+      const toAccount = queryClient.getQueryData<Account[]>(QUERY_KEYS.accounts(''))?.find(a => a.id === variables.toAccountId);
+      
+      if (fromAccount) {
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.accounts(fromAccount.budgetId) });
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.account(fromAccount.id) });
+      }
+      if (toAccount) {
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.accounts(toAccount.budgetId) });
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.account(toAccount.id) });
+      }
+      
+      // Also invalidate transaction queries since we created new transactions
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['summary'] });
     },
   });
 }
@@ -123,15 +159,18 @@ export function useAccountMutations() {
   const updateAccount = useUpdateAccount();
   const deleteAccount = useDeleteAccount();
   const reorderAccounts = useReorderAccounts();
+  const transferBetweenAccounts = useTransferBetweenAccounts();
 
   return {
     createAccountAsync: createAccount.mutateAsync,
     updateAccountAsync: updateAccount.mutateAsync,
     deleteAccountAsync: deleteAccount.mutateAsync,
     reorderAccountsAsync: reorderAccounts.mutateAsync,
+    transferBetweenAccountsAsync: transferBetweenAccounts.mutateAsync,
     isCreating: createAccount.isPending,
     isUpdating: updateAccount.isPending,
     isDeleting: deleteAccount.isPending,
     isReordering: reorderAccounts.isPending,
+    isTransferring: transferBetweenAccounts.isPending,
   };
 } 

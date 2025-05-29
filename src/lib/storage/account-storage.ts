@@ -197,4 +197,75 @@ export class AccountStorage {
       }
     }
   }
+
+  async transferBetweenAccounts(data: {
+    fromAccountId: string;
+    toAccountId: string;
+    amount: number;
+    description?: string;
+    date: Date;
+  }): Promise<{ fromTransaction: any; toTransaction: any }> {
+    const [fromAccount, toAccount] = await Promise.all([
+      this.getAccount(data.fromAccountId),
+      this.getAccount(data.toAccountId)
+    ]);
+
+    if (!fromAccount) {
+      throw new Error('Source account not found');
+    }
+    if (!toAccount) {
+      throw new Error('Destination account not found');
+    }
+
+    // Check if source account has sufficient funds
+    if (fromAccount.balance < data.amount) {
+      throw new Error('Insufficient funds in source account');
+    }
+
+    // Update account balances
+    await Promise.all([
+      this.updateAccountBalance(data.fromAccountId, fromAccount.balance - data.amount),
+      this.updateAccountBalance(data.toAccountId, toAccount.balance + data.amount)
+    ]);
+
+    // Create linked transactions for the transfer
+    // We'll need to import the budget storage to create transactions
+    try {
+      const { budgetStorage } = await import('./budget-storage');
+      
+      const transferId = crypto.randomUUID();
+      const description = data.description || `Transfer from ${fromAccount.name} to ${toAccount.name}`;
+
+      // Create outgoing transaction (from source account)
+      const fromTransaction = await budgetStorage.createTransaction({
+        amount: -data.amount,
+        description: `${description} (Outgoing)`,
+        date: data.date,
+        type: 'expense' as any,
+        accountId: data.fromAccountId,
+        categoryId: null, // Account transfers don't affect categories
+        tags: ['account-transfer', `transfer-${transferId}`]
+      });
+
+      // Create incoming transaction (to destination account)
+      const toTransaction = await budgetStorage.createTransaction({
+        amount: data.amount,
+        description: `${description} (Incoming)`,
+        date: data.date,
+        type: 'income' as any,
+        accountId: data.toAccountId,
+        categoryId: null, // Account transfers don't affect categories
+        tags: ['account-transfer', `transfer-${transferId}`]
+      });
+
+      return { fromTransaction, toTransaction };
+    } catch (error) {
+      // If transaction creation fails, reverse the account balance changes
+      await Promise.all([
+        this.updateAccountBalance(data.fromAccountId, fromAccount.balance),
+        this.updateAccountBalance(data.toAccountId, toAccount.balance)
+      ]);
+      throw new Error(`Failed to create transfer transactions: ${error.message}`);
+    }
+  }
 } 

@@ -3,11 +3,12 @@ import { Card, CardContent, CardHeader } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
-import { MoreHorizontal, Edit, Trash2, Eye, EyeOff } from 'lucide-react';
+import { MoreHorizontal, Edit, Trash2, Eye, EyeOff, ArrowRightLeft } from 'lucide-react';
 import { Account, DEFAULT_ACCOUNT_COLORS } from '../../types/account';
 import { formatSats } from '../../lib/bitcoin-utils';
 import { useAccountMutations } from '../../hooks/use-accounts';
 import { AccountFormModal } from './account-form-modal';
+import { AccountTransferModal } from './account-transfer-modal';
 
 interface AccountCardProps {
   account: Account;
@@ -16,6 +17,7 @@ interface AccountCardProps {
 
 export function AccountCard({ account, budgetId }: AccountCardProps) {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const { updateAccountAsync, deleteAccountAsync, isUpdating, isDeleting } = useAccountMutations();
 
   const handleToggleClosed = async () => {
@@ -83,6 +85,10 @@ export function AccountCard({ account, budgetId }: AccountCardProps) {
                   <Edit className="mr-2 h-4 w-4" />
                   Edit Account
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsTransferModalOpen(true)} disabled={account.isClosed}>
+                  <ArrowRightLeft className="mr-2 h-4 w-4" />
+                  Transfer Funds
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleToggleClosed}>
                   {account.isClosed ? (
                     <>
@@ -135,6 +141,12 @@ export function AccountCard({ account, budgetId }: AccountCardProps) {
         onClose={() => setIsEditModalOpen(false)}
         budgetId={budgetId}
         account={account}
+      />
+
+      <AccountTransferModal
+        isOpen={isTransferModalOpen}
+        onClose={() => setIsTransferModalOpen(false)}
+        defaultFromAccountId={account.id}
       />
     </>
   );
