@@ -28,6 +28,8 @@ export interface UpdateAccountData {
   description?: string;
   isOnBudget?: boolean;
   isClosed?: boolean;
+  balance?: number;
+  sortOrder?: number;
 }
 
 export const ACCOUNT_TYPES: { value: AccountType; label: string; description: string }[] = [

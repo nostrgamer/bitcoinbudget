@@ -17,7 +17,7 @@ export class AccountStorage {
       budgetId,
       name: data.name,
       type: data.type,
-      description: data.description,
+      ...(data.description && { description: data.description }),
       balance: data.initialBalance || 0,
       isOnBudget: data.isOnBudget,
       isClosed: false,
@@ -26,56 +26,92 @@ export class AccountStorage {
       updatedAt: new Date(),
     };
 
-    const encryptedAccount = await encryptData(account, this.password);
+    const encryptedAccount = await encryptData(JSON.stringify(account), this.password);
     
-    const transaction = db.transaction([STORES.ACCOUNTS], 'readwrite');
-    const store = transaction.objectStore(STORES.ACCOUNTS);
-    
-    await store.add({
-      id: account.id,
-      budgetId,
-      data: encryptedAccount,
-      updatedAt: account.updatedAt.getTime(),
-    });
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORES.ACCOUNTS], 'readwrite');
+      const store = transaction.objectStore(STORES.ACCOUNTS);
+      
+      const request = store.add({
+        id: account.id,
+        budgetId,
+        data: encryptedAccount,
+        updatedAt: account.updatedAt.getTime(),
+      });
 
-    return account;
+      request.onsuccess = () => resolve(account);
+      request.onerror = () => reject(new Error('Failed to create account'));
+      transaction.oncomplete = () => db.close();
+    });
   }
 
   async getAccounts(budgetId: string): Promise<Account[]> {
     const db = await openDatabase();
-    const transaction = db.transaction([STORES.ACCOUNTS], 'readonly');
-    const store = transaction.objectStore(STORES.ACCOUNTS);
-    const index = store.index('budgetId');
     
-    const records = await index.getAll(budgetId);
-    
-    const accounts: Account[] = [];
-    for (const record of records) {
-      try {
-        const decryptedAccount = await decryptData(record.data, this.password);
-        accounts.push(decryptedAccount);
-      } catch (error) {
-        console.error('Failed to decrypt account:', error);
-      }
-    }
-    
-    return accounts.sort((a, b) => a.sortOrder - b.sortOrder);
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORES.ACCOUNTS], 'readonly');
+      const store = transaction.objectStore(STORES.ACCOUNTS);
+      const index = store.index('budgetId');
+      
+      const request = index.getAll(budgetId);
+      
+      request.onsuccess = async () => {
+        const records = request.result;
+        const accounts: Account[] = [];
+        
+        for (const record of records) {
+          try {
+            const decryptedData = await decryptData(record.data, this.password);
+            const account = JSON.parse(decryptedData) as Account;
+            // Convert date strings back to Date objects
+            account.createdAt = new Date(account.createdAt);
+            account.updatedAt = new Date(account.updatedAt);
+            accounts.push(account);
+          } catch (error) {
+            console.error('Failed to decrypt account:', error);
+          }
+        }
+        
+        resolve(accounts.sort((a, b) => a.sortOrder - b.sortOrder));
+      };
+      
+      request.onerror = () => reject(new Error('Failed to get accounts'));
+      transaction.oncomplete = () => db.close();
+    });
   }
 
   async getAccount(accountId: string): Promise<Account | null> {
     const db = await openDatabase();
-    const transaction = db.transaction([STORES.ACCOUNTS], 'readonly');
-    const store = transaction.objectStore(STORES.ACCOUNTS);
     
-    const record = await store.get(accountId);
-    if (!record) return null;
-    
-    try {
-      return await decryptData(record.data, this.password);
-    } catch (error) {
-      console.error('Failed to decrypt account:', error);
-      return null;
-    }
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORES.ACCOUNTS], 'readonly');
+      const store = transaction.objectStore(STORES.ACCOUNTS);
+      
+      const request = store.get(accountId);
+      
+      request.onsuccess = async () => {
+        const record = request.result;
+        if (!record) {
+          resolve(null);
+          return;
+        }
+        
+        try {
+          const decryptedData = await decryptData(record.data, this.password);
+          const account = JSON.parse(decryptedData) as Account;
+          // Convert date strings back to Date objects
+          account.createdAt = new Date(account.createdAt);
+          account.updatedAt = new Date(account.updatedAt);
+          resolve(account);
+        } catch (error) {
+          console.error('Failed to decrypt account:', error);
+          resolve(null);
+        }
+      };
+      
+      request.onerror = () => reject(new Error('Failed to get account'));
+      transaction.oncomplete = () => db.close();
+    });
   }
 
   async updateAccount(accountId: string, updates: UpdateAccountData): Promise<Account> {
@@ -90,28 +126,40 @@ export class AccountStorage {
       updatedAt: new Date(),
     };
 
-    const encryptedAccount = await encryptData(updatedAccount, this.password);
+    const encryptedAccount = await encryptData(JSON.stringify(updatedAccount), this.password);
     
     const db = await openDatabase();
-    const transaction = db.transaction([STORES.ACCOUNTS], 'readwrite');
-    const store = transaction.objectStore(STORES.ACCOUNTS);
     
-    await store.put({
-      id: accountId,
-      budgetId: account.budgetId,
-      data: encryptedAccount,
-      updatedAt: updatedAccount.updatedAt.getTime(),
-    });
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORES.ACCOUNTS], 'readwrite');
+      const store = transaction.objectStore(STORES.ACCOUNTS);
+      
+      const request = store.put({
+        id: accountId,
+        budgetId: account.budgetId,
+        data: encryptedAccount,
+        updatedAt: updatedAccount.updatedAt.getTime(),
+      });
 
-    return updatedAccount;
+      request.onsuccess = () => resolve(updatedAccount);
+      request.onerror = () => reject(new Error('Failed to update account'));
+      transaction.oncomplete = () => db.close();
+    });
   }
 
   async deleteAccount(accountId: string): Promise<void> {
     const db = await openDatabase();
-    const transaction = db.transaction([STORES.ACCOUNTS], 'readwrite');
-    const store = transaction.objectStore(STORES.ACCOUNTS);
     
-    await store.delete(accountId);
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORES.ACCOUNTS], 'readwrite');
+      const store = transaction.objectStore(STORES.ACCOUNTS);
+      
+      const request = store.delete(accountId);
+      
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(new Error('Failed to delete account'));
+      transaction.oncomplete = () => db.close();
+    });
   }
 
   async updateAccountBalance(accountId: string, newBalance: number): Promise<void> {
@@ -140,9 +188,12 @@ export class AccountStorage {
     const accountMap = new Map(accounts.map(a => [a.id, a]));
 
     for (let i = 0; i < accountIds.length; i++) {
-      const account = accountMap.get(accountIds[i]);
-      if (account) {
-        await this.updateAccount(account.id, { sortOrder: i });
+      const accountId = accountIds[i];
+      if (accountId) {
+        const account = accountMap.get(accountId);
+        if (account) {
+          await this.updateAccount(account.id, { sortOrder: i });
+        }
       }
     }
   }
