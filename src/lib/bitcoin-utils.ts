@@ -1,19 +1,22 @@
 // Bitcoin utility functions for formatting and conversion
 
-const SATS_PER_BTC = 100000000
+export const SATS_PER_BTC = 100000000
 
 /**
  * Formats satoshis as a readable string with thousand separators
  */
 export function formatSats(sats: number): string {
-  return new Intl.NumberFormat('en-US').format(sats)
+  if (sats === 1) return '1 sat'
+  if (sats === -1) return '-1 sat'
+  if (sats === 0) return '0 sats'
+  return `${new Intl.NumberFormat('en-US').format(sats)} sats`
 }
 
 /**
  * Formats satoshis as Bitcoin with proper decimal places
  */
 export function formatBTC(sats: number): string {
-  return (sats / SATS_PER_BTC).toFixed(8)
+  return `${(sats / SATS_PER_BTC).toFixed(8)} BTC`
 }
 
 /**
@@ -28,6 +31,134 @@ export function btcToSats(btc: number): number {
  */
 export function satsToBTC(sats: number): number {
   return sats / SATS_PER_BTC
+}
+
+/**
+ * Parse satoshis from string input
+ */
+export function parseSats(input: string): number {
+  const trimmed = input.trim()
+  
+  if (trimmed === '') throw new Error('Empty input')
+  if (trimmed.includes('.')) throw new Error('Decimal not allowed for sats')
+  
+  // Check for invalid comma patterns
+  if (trimmed.includes(',')) {
+    // Remove sign for comma validation
+    const withoutSign = trimmed.replace(/^[+\-]/, '')
+    // Valid comma pattern: digits followed by groups of exactly 3 digits
+    if (!/^\d{1,3}(,\d{3})*$/.test(withoutSign)) {
+      throw new Error('Invalid comma placement')
+    }
+  }
+  
+  // Check for double commas
+  if (trimmed.includes(',,')) {
+    throw new Error('Invalid comma placement')
+  }
+  
+  // Remove commas, spaces, and underscores for parsing
+  const cleaned = trimmed.replace(/[,\s_]/g, '')
+  
+  const satsAmount = parseInt(cleaned, 10)
+  if (isNaN(satsAmount)) throw new Error('Invalid sats amount')
+  
+  return satsAmount
+}
+
+/**
+ * Parse Bitcoin from string input
+ */
+export function parseBTC(input: string): number {
+  const trimmed = input.trim()
+  const cleaned = trimmed.replace(/[+\s]/g, '')
+  
+  if (cleaned === '') throw new Error('Empty input')
+  if (cleaned.includes('.') && cleaned.split('.')[1]?.length > 8) {
+    throw new Error('Too many decimal places')
+  }
+  if (cleaned.split('.').length > 2) throw new Error('Multiple decimal points')
+  
+  const btcAmount = parseFloat(cleaned)
+  if (isNaN(btcAmount)) throw new Error('Invalid BTC amount')
+  
+  return Math.round(btcAmount * SATS_PER_BTC)
+}
+
+/**
+ * Convert sats to string
+ */
+export function satsToString(sats: number): string {
+  return sats.toString()
+}
+
+/**
+ * Convert string to sats
+ */
+export function stringToSats(input: string): number {
+  return parseInt(input, 10)
+}
+
+/**
+ * Validate satoshi amount
+ */
+export function validateSatAmount(sats: number): boolean {
+  return Number.isInteger(sats) && sats >= -21_000_000 * SATS_PER_BTC && sats <= 21_000_000 * SATS_PER_BTC
+}
+
+/**
+ * Check if amount is valid sats
+ */
+export function isValidSatAmount(sats: number): boolean {
+  return Number.isInteger(sats) && !isNaN(sats) && isFinite(sats)
+}
+
+/**
+ * Add satoshi amounts
+ */
+export function addSats(...amounts: number[]): number {
+  amounts.forEach(amount => {
+    if (!isValidSatAmount(amount)) throw new Error('Invalid sat amount')
+  })
+  return amounts.reduce((sum, amount) => sum + amount, 0)
+}
+
+/**
+ * Subtract satoshi amounts
+ */
+export function subtractSats(a: number, b: number): number {
+  if (!isValidSatAmount(a) || !isValidSatAmount(b)) throw new Error('Invalid sat amount')
+  return a - b
+}
+
+/**
+ * Multiply satoshi amount
+ */
+export function multiplySats(sats: number, multiplier: number): number {
+  if (!isValidSatAmount(sats) || isNaN(multiplier) || !isFinite(multiplier)) {
+    throw new Error('Invalid input')
+  }
+  return Math.round(sats * multiplier)
+}
+
+/**
+ * Divide satoshi amount
+ */
+export function divideSats(sats: number, divisor: number): number {
+  if (!isValidSatAmount(sats) || isNaN(divisor) || !isFinite(divisor) || divisor === 0) {
+    throw new Error('Invalid input or division by zero')
+  }
+  return Math.round(sats / divisor)
+}
+
+/**
+ * Calculate percentage of satoshi amount
+ */
+export function calculatePercentage(sats: number, percentage: number): number {
+  if (!isValidSatAmount(sats) || isNaN(percentage) || !isFinite(percentage)) {
+    throw new Error('Invalid input')
+  }
+  return Math.round(sats * (percentage / 100))
 }
 
 /**
@@ -51,46 +182,11 @@ export function formatSatsBoth(sats: number): { sats: string; btc: string } {
 }
 
 /**
- * Parses a string input to satoshis
- * Supports both BTC and sats input
- */
-export function parseToSats(input: string): number {
-  const trimmed = input.trim()
-  
-  // Remove commas and spaces
-  const cleaned = trimmed.replace(/[,\s]/g, '')
-  
-  // Check if it's a BTC amount (contains decimal point)
-  if (cleaned.includes('.')) {
-    const btcAmount = parseFloat(cleaned)
-    if (isNaN(btcAmount)) {
-      throw new Error('Invalid BTC amount')
-    }
-    return Math.round(btcAmount * SATS_PER_BTC)
-  }
-  
-  // Otherwise treat as sats
-  const satsAmount = parseInt(cleaned, 10)
-  if (isNaN(satsAmount)) {
-    throw new Error('Invalid sats amount')
-  }
-  
-  return satsAmount
-}
-
-/**
- * Validates if a number is a valid satoshi amount
- */
-export function isValidSatsAmount(sats: number): boolean {
-  return Number.isInteger(sats) && sats >= 0 && sats <= 21_000_000 * SATS_PER_BTC
-}
-
-/**
  * Validates if a string can be parsed to valid satoshis
  */
 export function isValidSatsInput(input: string): boolean {
   try {
-    parseToSats(input)
+    parseSats(input)
     return true
   } catch {
     return false
@@ -102,14 +198,6 @@ export function isValidSatsInput(input: string): boolean {
  */
 export function formatPercentage(value: number, decimals: number = 1): string {
   return `${value.toFixed(decimals)}%`
-}
-
-/**
- * Calculates percentage of total
- */
-export function calculatePercentage(amount: number, total: number): number {
-  if (total === 0) return 0
-  return (amount / total) * 100
 }
 
 /**
@@ -195,11 +283,11 @@ export function debounce<T extends (...args: any[]) => any>(
   func: T,
   wait: number
 ): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout
+  let timeout: number
   
   return (...args: Parameters<T>) => {
     clearTimeout(timeout)
-    timeout = setTimeout(() => func(...args), wait)
+    timeout = window.setTimeout(() => func(...args), wait)
   }
 }
 
@@ -222,4 +310,13 @@ export function parseSatsInput(input: string): number {
   // Handle sats format (remove "sats" suffix and any commas)
   const satsAmount = parseFloat(cleaned.replace(/[^\d.-]/g, ''))
   return isNaN(satsAmount) ? 0 : Math.round(satsAmount)
+}
+
+// Debounced validation function
+let timeout: number
+export const debouncedValidateAddress = (address: string, callback: (isValid: boolean) => void, delay: number = 300) => {
+  clearTimeout(timeout)
+  timeout = window.setTimeout(() => {
+    callback(isValidBitcoinAddress(address))
+  }, delay)
 } 

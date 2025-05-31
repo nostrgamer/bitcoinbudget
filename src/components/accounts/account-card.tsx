@@ -1,153 +1,205 @@
 import { useState } from 'react';
-import { Card, CardContent, CardHeader } from '../ui/card';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
-import { MoreHorizontal, Edit, Trash2, Eye, EyeOff, ArrowRightLeft } from 'lucide-react';
-import { Account, DEFAULT_ACCOUNT_COLORS } from '../../types/account';
-import { formatSats } from '../../lib/bitcoin-utils';
-import { useAccountMutations } from '../../hooks/use-accounts';
-import { AccountFormModal } from './account-form-modal';
-import { AccountTransferModal } from './account-transfer-modal';
+import { MoreVertical, Edit, Trash2, ArrowRightLeft, Eye, EyeOff } from 'lucide-react';
+import { useUpdateAccount, useDeleteAccount } from '../../hooks/use-unified-data';
+import { formatSats, formatBTC } from '../../lib/bitcoin-utils';
+import type { Account } from '../../types/account';
 
 interface AccountCardProps {
   account: Account;
-  budgetId: string;
+  onEdit: (account: Account) => void;
+  onTransfer: (accountId: string) => void;
 }
 
-export function AccountCard({ account, budgetId }: AccountCardProps) {
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
-  const { updateAccountAsync, deleteAccountAsync, isUpdating, isDeleting } = useAccountMutations();
+export default function AccountCard({ account, onEdit, onTransfer }: AccountCardProps) {
+  const updateAccount = useUpdateAccount();
+  const deleteAccount = useDeleteAccount();
+  
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  const getAccountTypeDisplay = (type: string) => {
+    switch (type) {
+      case 'spending':
+        return { label: 'Spending', color: 'bg-blue-100 text-blue-800' };
+      case 'savings':
+        return { label: 'Savings', color: 'bg-green-100 text-green-800' };
+      case 'investment':
+        return { label: 'Investment', color: 'bg-purple-100 text-purple-800' };
+      case 'debt':
+        return { label: 'Debt', color: 'bg-red-100 text-red-800' };
+      default:
+        return { label: type, color: 'bg-gray-100 text-gray-800' };
+    }
+  };
+
+  const typeDisplay = getAccountTypeDisplay(account.type);
+
+  const handleToggleOnBudget = async () => {
+    try {
+      await updateAccount.mutateAsync({
+        id: account.id,
+        updates: { isOnBudget: !account.isOnBudget }
+      });
+    } catch (error) {
+      console.error('Failed to update account:', error);
+    }
+  };
 
   const handleToggleClosed = async () => {
     try {
-      await updateAccountAsync({
-        accountId: account.id,
+      await updateAccount.mutateAsync({
+        id: account.id,
         updates: { isClosed: !account.isClosed }
       });
     } catch (error) {
-      console.error('Failed to toggle account status:', error);
+      console.error('Failed to update account:', error);
     }
   };
 
   const handleDelete = async () => {
     if (window.confirm(`Are you sure you want to delete "${account.name}"? This action cannot be undone.`)) {
       try {
-        await deleteAccountAsync(account.id);
+        await deleteAccount.mutateAsync(account.id);
       } catch (error) {
         console.error('Failed to delete account:', error);
       }
     }
   };
 
-  const accountTypeColor = DEFAULT_ACCOUNT_COLORS[account.type];
-  const isLoading = isUpdating || isDeleting;
+  const getBalanceColor = () => {
+    if (account.balance > 0) return 'text-green-600';
+    if (account.balance < 0) return 'text-red-600';
+    return 'text-gray-600';
+  };
 
   return (
-    <>
-      <Card className={`transition-all duration-200 hover:shadow-md ${account.isClosed ? 'opacity-60' : ''}`}>
-        <CardHeader className="pb-3">
-          <div className="flex items-start justify-between">
-            <div className="flex items-center space-x-3">
-              <div 
-                className="w-4 h-4 rounded-full flex-shrink-0"
-                style={{ backgroundColor: accountTypeColor }}
-              />
-              <div className="min-w-0 flex-1">
-                <h3 className="font-semibold text-lg truncate">{account.name}</h3>
-                <div className="flex items-center space-x-2 mt-1">
-                  <Badge variant="secondary" className="text-xs">
-                    {account.type}
-                  </Badge>
-                  {account.isOnBudget && (
-                    <Badge variant="outline" className="text-xs">
-                      On Budget
-                    </Badge>
-                  )}
-                  {account.isClosed && (
-                    <Badge variant="destructive" className="text-xs">
-                      Closed
-                    </Badge>
-                  )}
-                </div>
-              </div>
+    <div className={`relative p-4 border rounded-lg bg-card hover:shadow-md transition-all ${
+      account.isClosed ? 'opacity-60' : ''
+    }`}>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center space-x-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center space-x-2 mb-1">
+              <h3 className="font-medium truncate">{account.name}</h3>
+              {account.isClosed && (
+                <span className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
+                  Closed
+                </span>
+              )}
             </div>
-            
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" disabled={isLoading}>
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setIsEditModalOpen(true)}>
-                  <Edit className="mr-2 h-4 w-4" />
-                  Edit Account
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setIsTransferModalOpen(true)} disabled={account.isClosed}>
-                  <ArrowRightLeft className="mr-2 h-4 w-4" />
-                  Transfer Funds
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleToggleClosed}>
-                  {account.isClosed ? (
-                    <>
-                      <Eye className="mr-2 h-4 w-4" />
-                      Reopen Account
-                    </>
-                  ) : (
-                    <>
-                      <EyeOff className="mr-2 h-4 w-4" />
-                      Close Account
-                    </>
-                  )}
-                </DropdownMenuItem>
-                <DropdownMenuItem 
-                  onClick={handleDelete}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete Account
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </CardHeader>
-
-        <CardContent>
-          <div className="space-y-3">
-            {account.description && (
-              <p className="text-sm text-muted-foreground">{account.description}</p>
-            )}
-            
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">Current Balance:</span>
-              <span className={`font-mono text-lg font-semibold ${
-                account.balance >= 0 ? 'text-green-600' : 'text-red-600'
-              }`}>
-                {formatSats(account.balance)}
+            <div className="flex items-center space-x-2">
+              <span className={`px-2 py-1 text-xs rounded-full ${typeDisplay.color}`}>
+                {typeDisplay.label}
               </span>
-            </div>
-
-            <div className="text-xs text-muted-foreground">
-              Created {account.createdAt.toLocaleDateString()}
+              {account.isOnBudget && (
+                <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                  On Budget
+                </span>
+              )}
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      <AccountFormModal
-        isOpen={isEditModalOpen}
-        onClose={() => setIsEditModalOpen(false)}
-        budgetId={budgetId}
-        account={account}
-      />
+        {/* Menu Button */}
+        <div className="relative">
+          <button
+            onClick={() => setShowDropdown(!showDropdown)}
+            className="p-1 hover:bg-muted rounded transition-colors"
+          >
+            <MoreVertical className="h-4 w-4" />
+          </button>
 
-      <AccountTransferModal
-        isOpen={isTransferModalOpen}
-        onClose={() => setIsTransferModalOpen(false)}
-        defaultFromAccountId={account.id}
-      />
-    </>
+          {/* Dropdown Menu */}
+          {showDropdown && (
+            <div className="absolute right-0 top-8 bg-card border rounded-lg shadow-lg z-10 min-w-[160px]">
+              <button
+                onClick={() => {
+                  onEdit(account);
+                  setShowDropdown(false);
+                }}
+                className="w-full px-3 py-2 text-left hover:bg-muted flex items-center space-x-2 text-sm"
+              >
+                <Edit className="h-4 w-4" />
+                <span>Edit</span>
+              </button>
+              
+              <button
+                onClick={() => {
+                  onTransfer(account.id);
+                  setShowDropdown(false);
+                }}
+                className="w-full px-3 py-2 text-left hover:bg-muted flex items-center space-x-2 text-sm opacity-50 cursor-not-allowed"
+                disabled={true}
+                title="Transfer functionality coming soon"
+              >
+                <ArrowRightLeft className="h-4 w-4" />
+                <span>Transfer (Coming Soon)</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  handleToggleOnBudget();
+                  setShowDropdown(false);
+                }}
+                className="w-full px-3 py-2 text-left hover:bg-muted flex items-center space-x-2 text-sm"
+                disabled={updateAccount.isLoading}
+              >
+                {account.isOnBudget ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                <span>{account.isOnBudget ? 'Remove from Budget' : 'Add to Budget'}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  handleToggleClosed();
+                  setShowDropdown(false);
+                }}
+                className="w-full px-3 py-2 text-left hover:bg-muted flex items-center space-x-2 text-sm"
+              >
+                {account.isClosed ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                <span>{account.isClosed ? 'Reopen Account' : 'Close Account'}</span>
+              </button>
+
+              <hr className="my-1" />
+              
+              <button
+                onClick={() => {
+                  handleDelete();
+                  setShowDropdown(false);
+                }}
+                className="w-full px-3 py-2 text-left hover:bg-muted flex items-center space-x-2 text-sm text-red-600"
+                disabled={deleteAccount.isLoading}
+              >
+                <Trash2 className="h-4 w-4" />
+                <span>
+                  {deleteAccount.isLoading ? (
+                    'Deleting...'
+                  ) : (
+                    'Delete'
+                  )}
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Balance */}
+      <div className="text-right">
+        <div className={`font-mono font-medium text-lg ${getBalanceColor()}`}>
+          {formatSats(account.balance)} sats
+        </div>
+        <div className="text-xs text-muted-foreground">
+          ₿ {formatBTC(account.balance)}
+        </div>
+      </div>
+
+      {/* Click outside to close menu */}
+      {showDropdown && (
+        <div 
+          className="fixed inset-0 z-0" 
+          onClick={() => setShowDropdown(false)}
+        />
+      )}
+    </div>
   );
 } 

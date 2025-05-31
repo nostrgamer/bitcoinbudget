@@ -1,132 +1,168 @@
 import { useState, useEffect } from 'react'
-import { X, Save, TrendingUp, TrendingDown, Calendar, Wallet } from 'lucide-react'
+import { X, Save, Plus, DollarSign, Minus, ArrowRightLeft, Tag } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 
-import { useTransactions, useCategories, useBudget } from '../hooks/use-budget-storage'
-import { useAccounts } from '../hooks/use-accounts'
-import { parseToSats, isValidSatsInput, formatSats } from '../lib/bitcoin-utils'
-import { TransactionType, type Transaction, type CreateTransactionInput, type UpdateTransactionInput } from '../types/budget'
-
-interface TransactionFormData {
-  type: TransactionType
-  description: string
-  categoryId: string | null
-  accountId: string
-  amount: string
-  date: string
-  tags?: string
-}
+import { useCreateTransaction, useUpdateTransaction, useCategories, useAccounts } from '../hooks/use-unified-data'
+import { formatSats, parseSatsInput } from '../lib/bitcoin-utils'
+import type { Transaction } from '../types/budget'
+import { TransactionType } from '../types/budget'
+import { Button } from './ui/button'
+import { Input } from './ui/input'
 
 interface TransactionFormModalProps {
   isOpen: boolean
   onClose: () => void
-  transaction?: Transaction | undefined
-  defaultCategoryId?: string | null
-  defaultType?: TransactionType
+  transaction?: Transaction
+  defaultCategoryId?: string
+  defaultAccountId?: string
 }
 
 export default function TransactionFormModal({ 
   isOpen, 
   onClose, 
   transaction, 
-  defaultCategoryId = null,
-  defaultType = TransactionType.EXPENSE 
+  defaultCategoryId,
+  defaultAccountId 
 }: TransactionFormModalProps) {
-  const { createTransactionAsync, updateTransactionAsync, isCreating, isUpdating } = useTransactions()
-  const { categories } = useCategories()
-  const { data: budget } = useBudget()
-  const { data: accounts = [] } = useAccounts(budget?.id || '')
+  const createTransaction = useCreateTransaction()
+  const updateTransaction = useUpdateTransaction()
+  const { data: categories = [] } = useCategories()
+  const { data: accounts = [] } = useAccounts()
   
-  const [selectedType, setSelectedType] = useState<TransactionType>(
-    transaction?.type || defaultType
-  )
-
-  const form = useForm<TransactionFormData>({
-    defaultValues: {
-      type: transaction?.type || defaultType,
-      description: transaction?.description || '',
-      amount: transaction ? formatSats(Math.abs(transaction.amount)) : '',
-      categoryId: transaction?.categoryId || defaultCategoryId || null,
-      date: transaction?.date ? transaction.date.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-      tags: transaction?.tags?.join(', ') || '',
-      accountId: transaction?.accountId || (accounts.length > 0 ? accounts[0].id : ''),
-    },
+  const [formData, setFormData] = useState({
+    type: TransactionType.EXPENSE as TransactionType,
+    accountId: '',
+    categoryId: '',
+    amount: '',
+    description: '',
+    date: new Date().toISOString().split('T')[0],
+    tags: [] as string[],
+    tagInput: ''
   })
+  const [errors, setErrors] = useState<Record<string, string>>({})
 
-  // Update form when transaction changes (for editing)
+  const isEditing = !!transaction
+
   useEffect(() => {
     if (transaction) {
-      form.reset({
-        description: transaction.description,
-        amount: formatSats(Math.abs(transaction.amount)),
-        categoryId: transaction.categoryId,
+      setFormData({
         type: transaction.type,
-        date: transaction.date.toISOString().split('T')[0],
-        tags: transaction.tags?.join(', ') || '',
-        accountId: transaction.accountId || (accounts.length > 0 ? accounts[0].id : ''),
+        accountId: transaction.accountId,
+        categoryId: transaction.categoryId || '',
+        amount: formatSats(Math.abs(transaction.amount)),
+        description: transaction.description,
+        date: new Date(transaction.date).toISOString().split('T')[0],
+        tags: transaction.tags || [],
+        tagInput: ''
       })
-      setSelectedType(transaction.type)
     } else {
-      form.reset({
-        description: '',
+      setFormData({
+        type: TransactionType.EXPENSE,
+        accountId: defaultAccountId || '',
+        categoryId: defaultCategoryId || '',
         amount: '',
-        categoryId: defaultCategoryId,
-        type: defaultType,
+        description: '',
         date: new Date().toISOString().split('T')[0],
-        tags: '',
-        accountId: accounts.length > 0 ? accounts[0].id : '',
+        tags: [],
+        tagInput: ''
       })
-      setSelectedType(defaultType)
     }
-  }, [transaction, form, defaultCategoryId, defaultType, accounts])
+    setErrors({})
+  }, [transaction, isOpen, defaultCategoryId, defaultAccountId])
 
-  // Update type in form when selectedType changes
-  useEffect(() => {
-    form.setValue('type', selectedType)
-  }, [selectedType, form])
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {}
 
-  const onSubmit = async (data: TransactionFormData) => {
+    if (!formData.accountId) {
+      newErrors.accountId = 'Account is required'
+    }
+
+    if (!formData.description.trim()) {
+      newErrors.description = 'Description is required'
+    }
+
+    if (!formData.amount || isNaN(parseSatsInput(formData.amount))) {
+      newErrors.amount = 'Valid amount is required'
+    }
+
+    if (!formData.date) {
+      newErrors.date = 'Date is required'
+    }
+
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!validateForm()) return
+
     try {
-      const amount = parseToSats(data.amount)
-      const tags = data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(Boolean) : []
+      const amount = parseSatsInput(formData.amount)
+      const finalAmount = formData.type === 'expense' ? -Math.abs(amount) : Math.abs(amount)
 
-      if (transaction) {
-        const updates: UpdateTransactionInput = {
-          description: data.description,
-          amount: data.type === TransactionType.EXPENSE ? -Math.abs(amount) : Math.abs(amount),
-          categoryId: data.categoryId,
-          type: data.type,
-          date: new Date(data.date),
-          accountId: data.accountId,
-          ...(tags.length > 0 && { tags }),
-        }
-        await updateTransactionAsync({ id: transaction.id, updates })
-      } else {
-        const newTransaction: CreateTransactionInput = {
-          description: data.description,
-          amount: data.type === TransactionType.EXPENSE ? -Math.abs(amount) : Math.abs(amount),
-          categoryId: data.categoryId,
-          type: data.type,
-          date: new Date(data.date),
-          accountId: data.accountId,
-          ...(tags.length > 0 && { tags }),
-        }
-        await createTransactionAsync(newTransaction)
+      const transactionData = {
+        accountId: formData.accountId,
+        categoryId: formData.categoryId || null,
+        amount: finalAmount,
+        description: formData.description.trim(),
+        date: new Date(formData.date),
+        type: formData.type,
+        tags: formData.tags.length > 0 ? formData.tags : undefined
       }
+
+      if (isEditing && transaction) {
+        await updateTransaction.mutateAsync({
+          id: transaction.id,
+          updates: transactionData
+        })
+      } else {
+        await createTransaction.mutateAsync(transactionData)
+      }
+
       onClose()
     } catch (error) {
       console.error('Failed to save transaction:', error)
+      setErrors({ submit: 'Failed to save transaction. Please try again.' })
     }
   }
 
-  const handleTypeChange = (type: TransactionType) => {
-    setSelectedType(type)
+  const handleAddTag = () => {
+    const tag = formData.tagInput.trim()
+    if (tag && !formData.tags.includes(tag)) {
+      setFormData(prev => ({
+        ...prev,
+        tags: [...prev.tags, tag],
+        tagInput: ''
+      }))
+    }
   }
 
-  // Get active categories for dropdown
-  const activeCategories = categories.filter(cat => !cat.isArchived)
+  const handleRemoveTag = (tagToRemove: string) => {
+    setFormData(prev => ({
+      ...prev,
+      tags: prev.tags.filter(tag => tag !== tagToRemove)
+    }))
+  }
+
+  const handleTagInputKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleAddTag()
+    }
+  }
+
+  const handleClose = () => {
+    if (createTransaction.isLoading || updateTransaction.isLoading) return
+    onClose()
+  }
 
   if (!isOpen) return null
+
+  const isLoading = createTransaction.isLoading || updateTransaction.isLoading
+  const activeCategories = categories.filter(c => !c.isArchived)
+  const onBudgetAccounts = accounts.filter(a => a.isOnBudget && !a.isClosed)
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -134,87 +170,91 @@ export default function TransactionFormModal({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
           <h2 className="text-lg font-semibold">
-            {transaction ? 'Edit Transaction' : 'Add Transaction'}
+            {isEditing ? 'Edit Transaction' : 'Add Transaction'}
           </h2>
           <button
-            onClick={onClose}
-            className="p-2 hover:bg-muted rounded-lg transition-colors"
+            onClick={handleClose}
+            disabled={isLoading}
+            className="p-1 hover:bg-muted rounded transition-colors disabled:opacity-50"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Form */}
-        <form onSubmit={form.handleSubmit(onSubmit)} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {/* Transaction Type */}
           <div>
-            <label className="block text-sm font-medium mb-2">
-              Transaction Type *
-            </label>
-            <div className="grid grid-cols-2 gap-2">
+            <label className="block text-sm font-medium mb-2">Type</label>
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => handleTypeChange(TransactionType.INCOME)}
-                className={`p-3 border rounded-lg flex items-center justify-center space-x-2 transition-colors ${
-                  selectedType === TransactionType.INCOME
-                    ? 'bg-green-50 border-green-500 text-green-700'
-                    : 'hover:bg-muted'
+                onClick={() => setFormData(prev => ({ ...prev, type: TransactionType.INCOME }))}
+                className={`p-3 border rounded-lg flex flex-col items-center space-y-1 transition-colors ${
+                  formData.type === 'income' 
+                    ? 'border-green-500 bg-green-50 text-green-700' 
+                    : 'border-input hover:bg-muted'
                 }`}
+                disabled={isLoading}
               >
-                <TrendingUp className="h-4 w-4" />
-                <span>Income</span>
+                <DollarSign className="h-5 w-5" />
+                <span className="text-sm">Income</span>
               </button>
+              
               <button
                 type="button"
-                onClick={() => handleTypeChange(TransactionType.EXPENSE)}
-                className={`p-3 border rounded-lg flex items-center justify-center space-x-2 transition-colors ${
-                  selectedType === TransactionType.EXPENSE
-                    ? 'bg-red-50 border-red-500 text-red-700'
-                    : 'hover:bg-muted'
+                onClick={() => setFormData(prev => ({ ...prev, type: TransactionType.EXPENSE }))}
+                className={`p-3 border rounded-lg flex flex-col items-center space-y-1 transition-colors ${
+                  formData.type === 'expense' 
+                    ? 'border-red-500 bg-red-50 text-red-700' 
+                    : 'border-input hover:bg-muted'
                 }`}
+                disabled={isLoading}
               >
-                <TrendingDown className="h-4 w-4" />
-                <span>Expense</span>
+                <Minus className="h-5 w-5" />
+                <span className="text-sm">Expense</span>
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setFormData(prev => ({ ...prev, type: TransactionType.TRANSFER }))}
+                className={`p-3 border rounded-lg flex flex-col items-center space-y-1 transition-colors ${
+                  formData.type === 'transfer' 
+                    ? 'border-blue-500 bg-blue-50 text-blue-700' 
+                    : 'border-input hover:bg-muted'
+                }`}
+                disabled={isLoading}
+              >
+                <ArrowRightLeft className="h-5 w-5" />
+                <span className="text-sm">Transfer</span>
               </button>
             </div>
-            <input {...form.register('type')} type="hidden" />
           </div>
 
-          {/* Description */}
+          {/* Account */}
           <div>
-            <label htmlFor="description" className="block text-sm font-medium mb-2">
-              Description *
+            <label htmlFor="accountId" className="block text-sm font-medium mb-2">
+              Account *
             </label>
-            <input
-              {...form.register('description')}
-              type="text"
-              id="description"
-              placeholder={selectedType === TransactionType.INCOME ? 'e.g., Freelance payment' : 'e.g., Coffee shop'}
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-            />
-            {form.formState.errors.description && (
-              <p className="text-red-500 text-sm mt-1">{form.formState.errors.description.message}</p>
+            <select
+              id="accountId"
+              value={formData.accountId}
+              onChange={(e) => setFormData(prev => ({ ...prev, accountId: e.target.value }))}
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                errors.accountId ? 'border-red-500' : 'border-input'
+              }`}
+              disabled={isLoading}
+            >
+              <option value="">Select account...</option>
+              {onBudgetAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name} ({formatSats(account.balance)} sats)
+                </option>
+              ))}
+            </select>
+            {errors.accountId && (
+              <p className="text-red-500 text-sm mt-1">{errors.accountId}</p>
             )}
-          </div>
-
-          {/* Amount */}
-          <div>
-            <label htmlFor="amount" className="block text-sm font-medium mb-2">
-              Amount *
-            </label>
-            <input
-              {...form.register('amount')}
-              type="text"
-              id="amount"
-              placeholder="e.g., 50000 sats or 0.0005 BTC"
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-            />
-            {form.formState.errors.amount && (
-              <p className="text-red-500 text-sm mt-1">{form.formState.errors.amount.message}</p>
-            )}
-            <p className="text-xs text-muted-foreground mt-1">
-              Enter amount in sats (e.g., 50000) or BTC (e.g., 0.0005)
-            </p>
           </div>
 
           {/* Category */}
@@ -223,9 +263,11 @@ export default function TransactionFormModal({
               Category
             </label>
             <select
-              {...form.register('categoryId')}
               id="categoryId"
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              value={formData.categoryId}
+              onChange={(e) => setFormData(prev => ({ ...prev, categoryId: e.target.value }))}
+              className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={isLoading}
             >
               <option value="">Unassigned</option>
               {activeCategories.map((category) => (
@@ -234,37 +276,53 @@ export default function TransactionFormModal({
                 </option>
               ))}
             </select>
-            <p className="text-xs text-muted-foreground mt-1">
-              Optional: Assign to a budget category
-            </p>
           </div>
 
-          {/* Account */}
+          {/* Amount */}
           <div>
-            <label htmlFor="accountId" className="block text-sm font-medium mb-2">
-              Account *
+            <label htmlFor="amount" className="block text-sm font-medium mb-2">
+              Amount (sats) *
             </label>
-            {accounts.length > 0 ? (
-              <select
-                {...form.register('accountId')}
-                id="accountId"
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                required
-              >
-                {accounts.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.name} ({account.type}) - {formatSats(account.balance)} sats
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="w-full px-3 py-2 border rounded-lg bg-muted text-muted-foreground">
-                No accounts available. Please create an account first.
-              </div>
+            <input
+              id="amount"
+              type="text"
+              value={formData.amount}
+              onChange={(e) => setFormData(prev => ({ ...prev, amount: e.target.value }))}
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono ${
+                errors.amount ? 'border-red-500' : 'border-input'
+              }`}
+              placeholder="e.g., 100000 or 100,000"
+              disabled={isLoading}
+            />
+            {errors.amount && (
+              <p className="text-red-500 text-sm mt-1">{errors.amount}</p>
             )}
-            <p className="text-xs text-muted-foreground mt-1">
-              Select which account this transaction belongs to
-            </p>
+            {formData.amount && !errors.amount && (
+              <p className="text-muted-foreground text-sm mt-1">
+                ₿ {(parseSatsInput(formData.amount) / 100000000).toFixed(8)}
+              </p>
+            )}
+          </div>
+
+          {/* Description */}
+          <div>
+            <label htmlFor="description" className="block text-sm font-medium mb-2">
+              Description *
+            </label>
+            <input
+              id="description"
+              type="text"
+              value={formData.description}
+              onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                errors.description ? 'border-red-500' : 'border-input'
+              }`}
+              placeholder="What was this transaction for?"
+              disabled={isLoading}
+            />
+            {errors.description && (
+              <p className="text-red-500 text-sm mt-1">{errors.description}</p>
+            )}
           </div>
 
           {/* Date */}
@@ -272,65 +330,108 @@ export default function TransactionFormModal({
             <label htmlFor="date" className="block text-sm font-medium mb-2">
               Date *
             </label>
-            <div className="relative">
-              <input
-                {...form.register('date')}
-                type="date"
-                id="date"
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-              />
-              <Calendar className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            </div>
-            {form.formState.errors.date && (
-              <p className="text-red-500 text-sm mt-1">{form.formState.errors.date.message}</p>
+            <input
+              id="date"
+              type="date"
+              value={formData.date}
+              onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))}
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                errors.date ? 'border-red-500' : 'border-input'
+              }`}
+              disabled={isLoading}
+            />
+            {errors.date && (
+              <p className="text-red-500 text-sm mt-1">{errors.date}</p>
             )}
           </div>
 
           {/* Tags */}
           <div>
-            <label htmlFor="tags" className="block text-sm font-medium mb-2">
-              Tags
-            </label>
-            <input
-              {...form.register('tags')}
-              type="text"
-              id="tags"
-              placeholder="e.g., food, entertainment, work"
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Optional: Comma-separated tags for organization
-            </p>
+            <label className="block text-sm font-medium mb-2">Tags</label>
+            <div className="space-y-2">
+              <div className="flex space-x-2">
+                <input
+                  type="text"
+                  value={formData.tagInput}
+                  onChange={(e) => setFormData(prev => ({ ...prev, tagInput: e.target.value }))}
+                  onKeyPress={handleTagInputKeyPress}
+                  className="flex-1 px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Add a tag..."
+                  disabled={isLoading}
+                />
+                <button
+                  type="button"
+                  onClick={handleAddTag}
+                  disabled={!formData.tagInput.trim() || isLoading}
+                  className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  Add
+                </button>
+              </div>
+              
+              {formData.tags.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {formData.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center px-2 py-1 bg-muted rounded-full text-sm"
+                    >
+                      {tag}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTag(tag)}
+                        className="ml-1 text-muted-foreground hover:text-foreground"
+                        disabled={isLoading}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Form Actions */}
+          {/* Submit Error */}
+          {errors.submit && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-600 text-sm">{errors.submit}</p>
+            </div>
+          )}
+
+          {/* Actions */}
           <div className="flex space-x-3 pt-4">
             <button
               type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2 border rounded-lg hover:bg-muted transition-colors"
+              onClick={handleClose}
+              disabled={isLoading}
+              className="flex-1 px-4 py-2 border border-input rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={!form.formState.isValid || isCreating || isUpdating || accounts.length === 0}
-              className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+              disabled={isLoading}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
             >
-              {isCreating || isUpdating ? (
+              {isLoading ? (
                 <>
                   <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
-                  {transaction ? 'Updating...' : 'Adding...'}
-                </>
-              ) : accounts.length === 0 ? (
-                <>
-                  <Wallet className="h-4 w-4 mr-2" />
-                  Create Account First
+                  {isEditing ? 'Updating...' : 'Creating...'}
                 </>
               ) : (
                 <>
-                  <Save className="h-4 w-4 mr-2" />
-                  {transaction ? 'Update Transaction' : 'Add Transaction'}
+                  {isEditing ? (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Update
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add
+                    </>
+                  )}
                 </>
               )}
             </button>

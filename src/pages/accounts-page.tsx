@@ -1,260 +1,224 @@
 import { useState } from 'react';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Badge } from '../components/ui/badge';
-import { Plus, Search, Wallet, ArrowLeft, ArrowRightLeft } from 'lucide-react';
-import { useAccounts } from '../hooks/use-accounts';
-import { useBudget } from '../hooks/use-budget-storage';
-import { AccountCard } from '../components/accounts/account-card';
-import { AccountFormModal } from '../components/accounts/account-form-modal';
-import { AccountTransferModal } from '../components/accounts/account-transfer-modal';
-import { Account, ACCOUNT_TYPES } from '../types/account';
-import { formatSats } from '../lib/bitcoin-utils';
 import { useNavigate } from 'react-router-dom';
+import { Plus, Search, Grid, List, ArrowLeft, Filter } from 'lucide-react';
+import { useAccounts } from '../hooks/use-unified-data';
+import AccountCard from '../components/accounts/account-card';
+import AccountFormModal from '../components/accounts/account-form-modal';
+import type { Account } from '../types/account';
 
-export function AccountsPage() {
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+export default function AccountsPage() {
+  const navigate = useNavigate();
+  const { data: accounts = [], isLoading } = useAccounts();
+  
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<string>('name');
+  const [filterClosed, setFilterClosed] = useState(false);
+  const [sortBy, setSortBy] = useState<'name' | 'balance' | 'type' | 'created'>('name');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
-  const { data: budget } = useBudget();
-  const { data: accounts = [], isLoading } = useAccounts(budget?.id || '');
+  const handleEditAccount = (account: Account) => {
+    setEditingAccount(account);
+  };
 
-  console.log('AccountsPage - Budget:', budget, 'Budget ID:', budget?.id);
+  const handleTransfer = (accountId: string) => {
+    // Transfer functionality temporarily disabled
+    console.log('Transfer functionality not yet implemented for account:', accountId);
+  };
+
+  const handleCloseModals = () => {
+    setShowCreateModal(false);
+    setEditingAccount(null);
+  };
 
   // Filter and sort accounts
-  const filteredAndSortedAccounts = accounts
+  const filteredAccounts = accounts
     .filter(account => {
-      const matchesSearch = account.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           account.description?.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesType = filterType === 'all' || account.type === filterType;
-      const matchesStatus = filterStatus === 'all' || 
-                           (filterStatus === 'open' && !account.isClosed) ||
-                           (filterStatus === 'closed' && account.isClosed) ||
-                           (filterStatus === 'on-budget' && account.isOnBudget) ||
-                           (filterStatus === 'off-budget' && !account.isOnBudget);
-      
-      return matchesSearch && matchesType && matchesStatus;
+      const matchesSearch = account.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesClosed = filterClosed ? account.isClosed : !account.isClosed;
+      return matchesSearch && matchesClosed;
     })
     .sort((a, b) => {
       switch (sortBy) {
         case 'name':
           return a.name.localeCompare(b.name);
-        case 'type':
-          return a.type.localeCompare(b.type);
         case 'balance':
           return b.balance - a.balance;
+        case 'type':
+          return a.type.localeCompare(b.type);
         case 'created':
-          return b.createdAt.getTime() - a.createdAt.getTime();
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
         default:
-          return a.sortOrder - b.sortOrder;
+          return 0;
       }
     });
 
-  // Calculate summary stats
-  const totalBalance = accounts.reduce((sum, account) => sum + account.balance, 0);
-  const onBudgetBalance = accounts
-    .filter(account => account.isOnBudget && !account.isClosed)
-    .reduce((sum, account) => sum + account.balance, 0);
-  const openAccounts = accounts.filter(account => !account.isClosed).length;
-
-  const navigate = useNavigate();
+  const onBudgetAccounts = accounts.filter(a => a.isOnBudget && !a.isClosed);
+  const totalBalance = onBudgetAccounts.reduce((sum, a) => sum + a.balance, 0);
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto mb-4"></div>
-            <p className="text-muted-foreground">Loading accounts...</p>
-          </div>
-        </div>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <button
-            onClick={() => navigate('/budget')}
-            className="p-2 hover:bg-muted rounded-lg transition-colors"
+            onClick={() => navigate('/')}
+            className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
           >
-            <ArrowLeft className="h-5 w-5" />
+            <ArrowLeft className="h-4 w-4" />
+            <span>Back to Budget</span>
           </button>
           <div>
-            <h1 className="text-3xl font-bold">Accounts</h1>
-            <p className="text-muted-foreground mt-1">
+            <h1 className="text-2xl font-bold">Accounts</h1>
+            <p className="text-muted-foreground">
               Manage your Bitcoin accounts and wallets
             </p>
           </div>
         </div>
-        <div className="flex space-x-2">
-          <Button 
-            onClick={() => setIsTransferModalOpen(true)}
-            variant="outline"
-            disabled={accounts.length < 2}
-          >
-            <ArrowRightLeft className="mr-2 h-4 w-4" />
-            Transfer
-          </Button>
-          <Button onClick={() => setIsCreateModalOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Account
-          </Button>
-        </div>
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          <span>New Account</span>
+        </button>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-card rounded-lg border p-6">
-          <div className="flex items-center space-x-2 mb-2">
-            <Wallet className="h-5 w-5 text-muted-foreground" />
-            <span className="text-sm font-medium text-muted-foreground">Total Balance</span>
-          </div>
-          <p className="text-2xl font-bold">{formatSats(totalBalance)}</p>
-        </div>
-        
-        <div className="bg-card rounded-lg border p-6">
-          <div className="flex items-center space-x-2 mb-2">
-            <Wallet className="h-5 w-5 text-muted-foreground" />
-            <span className="text-sm font-medium text-muted-foreground">On-Budget Balance</span>
-          </div>
-          <p className="text-2xl font-bold">{formatSats(onBudgetBalance)}</p>
-        </div>
-        
-        <div className="bg-card rounded-lg border p-6">
-          <div className="flex items-center space-x-2 mb-2">
-            <Wallet className="h-5 w-5 text-muted-foreground" />
-            <span className="text-sm font-medium text-muted-foreground">Open Accounts</span>
-          </div>
-          <p className="text-2xl font-bold">{openAccounts}</p>
-        </div>
-      </div>
-
-      {/* Filters and Search */}
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
-        <div className="relative flex-1">
+      {/* Filters and Controls */}
+      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+        {/* Search */}
+        <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
+          <input
+            type="text"
             placeholder="Search accounts..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
+            className="w-full pl-10 pr-4 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-        
-        <Select value={filterType} onValueChange={setFilterType}>
-          <SelectTrigger className="w-full sm:w-48">
-            <SelectValue placeholder="Filter by type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Types</SelectItem>
-            {ACCOUNT_TYPES.map((type) => (
-              <SelectItem key={type.value} value={type.value}>
-                {type.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        
-        <Select value={filterStatus} onValueChange={setFilterStatus}>
-          <SelectTrigger className="w-full sm:w-48">
-            <SelectValue placeholder="Filter by status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="open">Open</SelectItem>
-            <SelectItem value="closed">Closed</SelectItem>
-            <SelectItem value="on-budget">On Budget</SelectItem>
-            <SelectItem value="off-budget">Off Budget</SelectItem>
-          </SelectContent>
-        </Select>
-        
-        <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="w-full sm:w-48">
-            <SelectValue placeholder="Sort by" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="name">Name</SelectItem>
-            <SelectItem value="type">Type</SelectItem>
-            <SelectItem value="balance">Balance</SelectItem>
-            <SelectItem value="created">Date Created</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
 
-      {/* Results Summary */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center space-x-2">
-          <span className="text-sm text-muted-foreground">
-            Showing {filteredAndSortedAccounts.length} of {accounts.length} accounts
-          </span>
-          {(searchTerm || filterType !== 'all' || filterStatus !== 'all') && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setSearchTerm('');
-                setFilterType('all');
-                setFilterStatus('all');
-              }}
+        {/* Controls */}
+        <div className="flex items-center space-x-4">
+          {/* Closed Filter */}
+          <button
+            onClick={() => setFilterClosed(!filterClosed)}
+            className={`flex items-center space-x-2 px-3 py-2 rounded-lg border transition-colors ${
+              filterClosed 
+                ? 'bg-blue-50 border-blue-200 text-blue-700' 
+                : 'border-input hover:bg-muted'
+            }`}
+          >
+            <Filter className="h-4 w-4" />
+            <span>{filterClosed ? 'Closed' : 'Active'}</span>
+          </button>
+
+          {/* Sort */}
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
+            className="px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="name">Sort by Name</option>
+            <option value="balance">Sort by Balance</option>
+            <option value="type">Sort by Type</option>
+            <option value="created">Sort by Created</option>
+          </select>
+
+          {/* View Mode */}
+          <div className="flex border border-input rounded-lg">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`p-2 ${viewMode === 'grid' ? 'bg-muted' : 'hover:bg-muted'} rounded-l-lg transition-colors`}
             >
-              Clear filters
-            </Button>
-          )}
+              <Grid className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`p-2 ${viewMode === 'list' ? 'bg-muted' : 'hover:bg-muted'} rounded-r-lg transition-colors`}
+            >
+              <List className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Accounts Grid */}
-      {filteredAndSortedAccounts.length === 0 ? (
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="p-4 border rounded-lg bg-card">
+          <div className="text-sm text-muted-foreground">Total Accounts</div>
+          <div className="text-2xl font-bold">{accounts.length}</div>
+        </div>
+        <div className="p-4 border rounded-lg bg-card">
+          <div className="text-sm text-muted-foreground">On Budget</div>
+          <div className="text-2xl font-bold">{onBudgetAccounts.length}</div>
+        </div>
+        <div className="p-4 border rounded-lg bg-card">
+          <div className="text-sm text-muted-foreground">Total Balance</div>
+          <div className="text-2xl font-bold">
+            {totalBalance.toLocaleString()} sats
+          </div>
+        </div>
+        <div className="p-4 border rounded-lg bg-card">
+          <div className="text-sm text-muted-foreground">Net Worth</div>
+          <div className="text-2xl font-bold">
+            ₿ {(totalBalance / 100000000).toFixed(8)}
+          </div>
+        </div>
+      </div>
+
+      {/* Accounts Grid/List */}
+      {filteredAccounts.length === 0 ? (
         <div className="text-center py-12">
-          <Wallet className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-          <h3 className="text-lg font-semibold mb-2">
-            {accounts.length === 0 ? 'No accounts yet' : 'No accounts match your filters'}
-          </h3>
-          <p className="text-muted-foreground mb-4">
-            {accounts.length === 0 
-              ? 'Create your first Bitcoin account to start tracking your funds'
-              : 'Try adjusting your search or filter criteria'
-            }
-          </p>
-          {accounts.length === 0 && (
-            <Button onClick={() => setIsCreateModalOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Your First Account
-            </Button>
+          <div className="text-muted-foreground mb-4">
+            {searchTerm ? 'No accounts match your search.' : 'No accounts found.'}
+          </div>
+          {!searchTerm && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Create your first account
+            </button>
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredAndSortedAccounts.map((account) => (
+        <div className={
+          viewMode === 'grid' 
+            ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'
+            : 'space-y-4'
+        }>
+          {filteredAccounts.map((account) => (
             <AccountCard
               key={account.id}
               account={account}
-              budgetId={budget?.id || ''}
+              onEdit={handleEditAccount}
+              onTransfer={handleTransfer}
             />
           ))}
         </div>
       )}
 
-      {/* Create Account Modal */}
+      {/* Modals */}
       <AccountFormModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        budgetId={budget?.id || ''}
+        isOpen={showCreateModal}
+        onClose={handleCloseModals}
+        budgetId="default"
       />
 
-      {/* Transfer Modal */}
-      <AccountTransferModal
-        isOpen={isTransferModalOpen}
-        onClose={() => setIsTransferModalOpen(false)}
+      <AccountFormModal
+        isOpen={!!editingAccount}
+        onClose={handleCloseModals}
+        budgetId="default"
+        account={editingAccount || undefined}
       />
     </div>
   );

@@ -1,282 +1,203 @@
-import { useState, useMemo } from 'react'
-import { ArrowLeft, Plus, Search, Filter, Archive, Grid, List } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+import { Plus, Search, Grid, List } from 'lucide-react'
 
-import { useCategories } from '../hooks/use-budget-storage'
+import { useCategories } from '../hooks/use-unified-data'
 import CategoryCard from '../components/category-card'
 import CategoryFormModal from '../components/category-form-modal'
-import TransactionFormModal from '../components/transaction-form-modal'
 import type { BudgetCategory } from '../types/budget'
-import { TransactionType } from '../types/budget'
-
-type ViewMode = 'grid' | 'list'
-type FilterMode = 'all' | 'active' | 'archived'
-type SortMode = 'name' | 'target' | 'current' | 'progress'
 
 export default function CategoriesPage() {
-  const navigate = useNavigate()
-  const { categories, isLoading } = useCategories()
-  
-  // UI State
-  const [viewMode, setViewMode] = useState<ViewMode>('grid')
-  const [filterMode, setFilterMode] = useState<FilterMode>('active')
-  const [sortMode, setSortMode] = useState<SortMode>('name')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [showCreateModal, setShowCreateModal] = useState(false)
+  const { data: categories = [], isLoading } = useCategories()
+  const [showModal, setShowModal] = useState(false)
   const [editingCategory, setEditingCategory] = useState<BudgetCategory | undefined>()
-  const [showTransactionModal, setShowTransactionModal] = useState(false)
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>()
+  const [searchTerm, setSearchTerm] = useState('')
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [sortBy, setSortBy] = useState<'name' | 'target' | 'current' | 'created'>('name')
+  const [filterBy, setFilterBy] = useState<'all' | 'active' | 'archived'>('all')
 
-  // Filter and sort categories
-  const filteredAndSortedCategories = useMemo(() => {
-    let filtered = categories
-
-    // Apply filter
-    switch (filterMode) {
-      case 'active':
-        filtered = categories.filter(cat => !cat.isArchived)
-        break
-      case 'archived':
-        filtered = categories.filter(cat => cat.isArchived)
-        break
-      case 'all':
-      default:
-        // Show all categories
-        break
-    }
-
-    // Apply search
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase()
-      filtered = filtered.filter(cat => 
-        cat.name.toLowerCase().includes(query) ||
-        (cat.description && cat.description.toLowerCase().includes(query))
-      )
-    }
-
-    // Apply sort
-    const sorted = [...filtered].sort((a, b) => {
-      switch (sortMode) {
-        case 'name':
-          return a.name.localeCompare(b.name)
-        case 'target':
-          return b.targetAmount - a.targetAmount
-        case 'current':
-          return b.currentAmount - a.currentAmount
-        case 'progress':
-          const progressA = a.targetAmount > 0 ? (a.currentAmount / a.targetAmount) : 0
-          const progressB = b.targetAmount > 0 ? (b.currentAmount / b.targetAmount) : 0
-          return progressB - progressA
-        default:
-          return 0
-      }
-    })
-
-    return sorted
-  }, [categories, filterMode, searchQuery, sortMode])
-
-  const handleEditCategory = (category: BudgetCategory) => {
+  const handleEdit = (category: BudgetCategory) => {
     setEditingCategory(category)
+    setShowModal(true)
   }
 
   const handleCloseModal = () => {
-    setShowCreateModal(false)
+    setShowModal(false)
     setEditingCategory(undefined)
-    setShowTransactionModal(false)
-    setSelectedCategoryId(undefined)
   }
 
-  const handleAddTransaction = (categoryId: string) => {
-    setSelectedCategoryId(categoryId)
-    setShowTransactionModal(true)
-  }
+  // Filter categories
+  const filteredCategories = categories.filter(category => {
+    const matchesSearch = category.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (category.description?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false)
+    
+    const matchesFilter = filterBy === 'all' || 
+                         (filterBy === 'active' && !category.isArchived) ||
+                         (filterBy === 'archived' && category.isArchived)
+    
+    return matchesSearch && matchesFilter
+  })
 
-  // Stats
-  const activeCategories = categories.filter(cat => !cat.isArchived)
-  const archivedCategories = categories.filter(cat => cat.isArchived)
-  const totalTarget = activeCategories.reduce((sum, cat) => sum + cat.targetAmount, 0)
-  const totalCurrent = activeCategories.reduce((sum, cat) => sum + cat.currentAmount, 0)
+  // Sort categories
+  const sortedCategories = [...filteredCategories].sort((a, b) => {
+    switch (sortBy) {
+      case 'name':
+        return a.name.localeCompare(b.name)
+      case 'target':
+        return b.targetAmount - a.targetAmount
+      case 'current':
+        return b.currentAmount - a.currentAmount
+      case 'created':
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      default:
+        return 0
+    }
+  })
+
+  const activeCategories = categories.filter(c => !c.isArchived)
+  const archivedCategories = categories.filter(c => c.isArchived)
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading categories...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="space-y-6">
       {/* Header */}
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => navigate('/budget')}
-                className="p-2 hover:bg-muted rounded-lg transition-colors"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-              <div>
-                <h1 className="text-xl font-semibold">Categories</h1>
-                <p className="text-sm text-muted-foreground">
-                  Manage your budget categories
-                </p>
-              </div>
-            </div>
-            
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              New Category
-            </button>
-          </div>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Categories</h1>
+          <p className="text-muted-foreground">
+            Manage your budget categories and spending targets
+          </p>
         </div>
-      </header>
+        <button
+          onClick={() => setShowModal(true)}
+          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          <span>Add Category</span>
+        </button>
+      </div>
 
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="p-4 border rounded-lg bg-card">
-            <div className="text-sm text-muted-foreground">Active Categories</div>
-            <div className="text-2xl font-bold">{activeCategories.length}</div>
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="p-4 border rounded-lg bg-card">
+          <div className="text-2xl font-bold text-blue-600">{activeCategories.length}</div>
+          <div className="text-sm text-muted-foreground">Active Categories</div>
+        </div>
+        <div className="p-4 border rounded-lg bg-card">
+          <div className="text-2xl font-bold text-gray-600">{archivedCategories.length}</div>
+          <div className="text-sm text-muted-foreground">Archived Categories</div>
+        </div>
+        <div className="p-4 border rounded-lg bg-card">
+          <div className="text-2xl font-bold text-green-600">
+            {categories.reduce((sum, c) => sum + c.currentAmount, 0).toLocaleString()}
           </div>
-          <div className="p-4 border rounded-lg bg-card">
-            <div className="text-sm text-muted-foreground">Archived</div>
-            <div className="text-2xl font-bold">{archivedCategories.length}</div>
-          </div>
-          <div className="p-4 border rounded-lg bg-card">
-            <div className="text-sm text-muted-foreground">Total Target</div>
-            <div className="text-lg font-mono font-semibold">
-              {(totalTarget / 100000000).toFixed(8)} BTC
-            </div>
-          </div>
-          <div className="p-4 border rounded-lg bg-card">
-            <div className="text-sm text-muted-foreground">Total Current</div>
-            <div className="text-lg font-mono font-semibold">
-              {(totalCurrent / 100000000).toFixed(8)} BTC
-            </div>
-          </div>
+          <div className="text-sm text-muted-foreground">Total Allocated (sats)</div>
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        {/* Search */}
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search categories..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
         </div>
 
-        {/* Controls */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-6">
-          {/* Search */}
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search categories..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-            />
-          </div>
+        {/* Filter */}
+        <select
+          value={filterBy}
+          onChange={(e) => setFilterBy(e.target.value as any)}
+          className="px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="all">All Categories</option>
+          <option value="active">Active Only</option>
+          <option value="archived">Archived Only</option>
+        </select>
 
-          {/* Filter */}
-          <div className="flex items-center space-x-2">
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            <select
-              value={filterMode}
-              onChange={(e) => setFilterMode(e.target.value as FilterMode)}
-              className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-            >
-              <option value="active">Active</option>
-              <option value="archived">Archived</option>
-              <option value="all">All</option>
-            </select>
-          </div>
+        {/* Sort */}
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as any)}
+          className="px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="name">Sort by Name</option>
+          <option value="target">Sort by Target</option>
+          <option value="current">Sort by Current</option>
+          <option value="created">Sort by Created</option>
+        </select>
 
-          {/* Sort */}
-          <select
-            value={sortMode}
-            onChange={(e) => setSortMode(e.target.value as SortMode)}
-            className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+        {/* View Mode */}
+        <div className="flex border border-input rounded-lg">
+          <button
+            onClick={() => setViewMode('grid')}
+            className={`p-2 ${viewMode === 'grid' ? 'bg-muted' : ''}`}
           >
-            <option value="name">Sort by Name</option>
-            <option value="target">Sort by Target</option>
-            <option value="current">Sort by Current</option>
-            <option value="progress">Sort by Progress</option>
-          </select>
-
-          {/* View Mode */}
-          <div className="flex border rounded-lg">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`p-2 ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'} transition-colors`}
-            >
-              <Grid className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`p-2 ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'} transition-colors`}
-            >
-              <List className="h-4 w-4" />
-            </button>
-          </div>
+            <Grid className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setViewMode('list')}
+            className={`p-2 ${viewMode === 'list' ? 'bg-muted' : ''}`}
+          >
+            <List className="h-4 w-4" />
+          </button>
         </div>
+      </div>
 
-        {/* Categories */}
-        {isLoading ? (
-          // Loading skeleton
-          <div className={`grid gap-4 ${viewMode === 'grid' ? 'md:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="p-4 border rounded-lg bg-card">
-                <div className="animate-pulse">
-                  <div className="h-4 bg-muted rounded w-1/3 mb-2" />
-                  <div className="h-6 bg-muted rounded w-2/3 mb-4" />
-                  <div className="h-2 bg-muted rounded w-full mb-2" />
-                  <div className="h-2 bg-muted rounded w-3/4" />
-                </div>
-              </div>
-            ))}
+      {/* Categories Grid/List */}
+      {sortedCategories.length === 0 ? (
+        <div className="text-center py-12">
+          <div className="text-muted-foreground mb-4">
+            {searchTerm || filterBy !== 'all' 
+              ? 'No categories match your filters' 
+              : 'No categories yet'
+            }
           </div>
-        ) : filteredAndSortedCategories.length > 0 ? (
-          // Show categories
-          <div className={`grid gap-4 ${viewMode === 'grid' ? 'md:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
-            {filteredAndSortedCategories.map((category) => (
-              <CategoryCard
-                key={category.id}
-                category={category}
-                onEdit={handleEditCategory}
-                onAddTransaction={handleAddTransaction}
-              />
-            ))}
-          </div>
-        ) : (
-          // Empty state
-          <div className="text-center py-12">
-            <Archive className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-            <h3 className="text-lg font-medium mb-2">
-              {searchQuery ? 'No categories found' : 'No categories yet'}
-            </h3>
-            <p className="text-muted-foreground mb-4">
-              {searchQuery 
-                ? `No categories match "${searchQuery}"`
-                : 'Create your first budget category to get started'
-              }
-            </p>
-            {!searchQuery && (
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="inline-flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Create Category
-              </button>
-            )}
-          </div>
-        )}
-      </main>
+          {!searchTerm && filterBy === 'all' && (
+            <button
+              onClick={() => setShowModal(true)}
+              className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Create your first category</span>
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className={
+          viewMode === 'grid' 
+            ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'
+            : 'space-y-4'
+        }>
+          {sortedCategories.map((category) => (
+            <CategoryCard
+              key={category.id}
+              category={category}
+              onEdit={handleEdit}
+            />
+          ))}
+        </div>
+      )}
 
-      {/* Modals */}
+      {/* Category Form Modal */}
       <CategoryFormModal
-        isOpen={showCreateModal || !!editingCategory}
+        isOpen={showModal}
         onClose={handleCloseModal}
         category={editingCategory}
-      />
-      
-      <TransactionFormModal
-        isOpen={showTransactionModal}
-        onClose={handleCloseModal}
-        defaultCategoryId={selectedCategoryId || null}
-        defaultType={TransactionType.EXPENSE}
       />
     </div>
   )

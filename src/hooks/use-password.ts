@@ -19,6 +19,5 @@ export function usePassword() {
     password,
     isLoading,
     setPassword,
-    hasPassword: !!password,
-  };
+    hasPassword: !!password};
 } 

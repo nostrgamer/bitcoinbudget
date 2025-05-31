@@ -1,0 +1,299 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Bitcoin Budget App - Cursor Rules
+
+## Project Overview
+This is a Bitcoin budgeting web application that follows envelope budgeting methodology with monthly budget periods and account management, designed specifically for Bitcoiners. All budgeting is done in sats/Bitcoin with manual entry (no wallet connectivity). The app prioritizes privacy with client-side data storage and encryption.
+
+## Implementation Phases
+- **Phase 1 (Complete)**: Basic envelope budgeting, categories, transactions, transfers
+- **Phase 2 (Complete)**: Account management system with multiple Bitcoin accounts/wallets
+- **Phase 3 (Complete)**: Monthly budgeting with rollover logic and budget periods
+
+## Core Data Model
+- **Accounts**: Bitcoin wallets/holdings (hardware, exchange, mobile, etc.)
+- **Budget Periods**: Monthly cycles for budget allocation and tracking
+- **Categories**: Spending envelopes for organizing budget
+- **Transactions**: Bitcoin movements tied to specific accounts
+- **Transfers**: Moving Bitcoin between accounts or allocating to categories
+
+## Technology Stack
+- **Frontend**: React 18+ with TypeScript
+- **Styling**: TailwindCSS 3.x
+- **Build Tool**: Vite
+- **UI Components**: Custom components (not shadcn/ui - we built our own)
+- **State Management**: TanStack Query (React Query) with Unified Data Manager
+- **Routing**: React Router
+- **Storage**: IndexedDB with Web Crypto API encryption
+- **PWA**: Service Worker for offline capability
+
+## Critical Development Lessons
+
+### Data Consistency & Integrity
+- **ALWAYS use `.mutateAsync()` instead of `.mutate()`** when you need to wait for completion
+- **Implement data integrity checks** in all storage operations
+- **Use unified data management** - avoid multiple storage systems that can get out of sync
+- **Validate data consistency** after major operations (transfers, allocations, deletions)
+- **Implement automatic data repair** for common inconsistency patterns
+- **Test edge cases** like negative balances, duplicate periods, orphaned records
+
+### React Query & Async Operations
+- **Use `.mutateAsync()` for sequential operations** that depend on each other
+- **Implement proper error handling** with try/catch blocks around async operations
+- **Invalidate related queries** after mutations to ensure UI consistency
+- **Use optimistic updates carefully** - they can mask data integrity issues
+- **Test loading and error states** thoroughly
+
+### IndexedDB & Storage Patterns
+- **Always use transactions** for operations that modify multiple stores
+- **Implement proper error handling** for IndexedDB operations
+- **Use consistent ID generation** (crypto.randomUUID())
+- **Validate data before storage** to prevent corruption
+- **Implement data migration strategies** for schema changes
+- **Test storage operations** with edge cases and error conditions
+
+### Form Handling & UI State
+- **Reset forms properly** after successful submissions
+- **Use controlled components** with proper form libraries
+- **Validate inputs** both client-side and in storage layer
+- **Handle async form submissions** with proper loading states
+- **Test form edge cases** like rapid submissions, validation errors
+
+### Component Architecture
+- **Keep components focused** - avoid components that do too many things
+- **Separate data logic from UI logic** using custom hooks
+- **Use composition over complex prop drilling**
+- **Implement proper error boundaries** for component trees
+- **Test component integration** not just isolated units
+
+## Code Style & Best Practices
+
+### Architecture Documentation Maintenance
+- **ALWAYS update ARCHITECTURE.md** when making changes to:
+  - File structure or organization
+  - Data models or interfaces
+  - Component architecture
+  - Storage layer changes
+  - Hook patterns or state management
+  - Technology stack updates
+  - Implementation phase progress
+- **Check ARCHITECTURE.md accuracy** before completing any significant changes
+- **Keep file structure documentation current** with actual project structure
+
+### TypeScript
+- Use strict TypeScript configuration
+- Prefer interfaces over types for object shapes
+- Use proper typing, avoid `any`
+- Use enums for constants where appropriate
+- Implement proper error handling with typed errors
+- **Define proper return types** for all functions
+- **Use discriminated unions** for complex state management
+
+### React
+- Use functional components with hooks
+- Prefer composition over inheritance
+- Use proper dependency arrays in useEffect
+- Implement proper error boundaries
+- Use React.memo for performance optimization where needed
+- **Always cleanup effects** that create subscriptions or timers
+- **Use useCallback and useMemo** appropriately for performance
+
+### File Organization
+- Use kebab-case for file names
+- Use PascalCase for component names
+- Group related files in feature folders
+- Keep components small and focused
+- Separate business logic from UI components
+- **Organize by feature, not by file type**
+- **Keep test files co-located** with source files
+
+### Security & Privacy
+- Never log sensitive data (amounts, descriptions, etc.)
+- Use Web Crypto API for all encryption
+- Implement proper key derivation (PBKDF2)
+- Validate all user inputs
+- Use secure random generation for IDs
+- **Sanitize data before display** to prevent XSS
+- **Use proper error messages** that don't leak sensitive information
+
+### Bitcoin/Sats Handling
+- Always use integers for sat amounts (no floating point)
+- Implement proper sat/BTC conversion utilities
+- Use BigInt for large sat amounts if needed
+- Validate Bitcoin addresses if used
+- Handle sat precision correctly in UI
+- **Use consistent formatting** across the application
+- **Validate sat amounts** before storage and calculations
+
+### Account Management (Phase 2)
+- All transactions must be linked to a specific account
+- Account balances calculated from transaction history
+- Support multiple account types (checking, savings, investment, cash)
+- Implement account transfer functionality
+- Validate account balance consistency
+- **Prevent account deletion** if it has transactions
+- **Handle account closure** properly with balance transfers
+
+### Monthly Budgeting (Phase 3)
+- Budget periods are calendar months
+- Unspent category funds roll over to next month
+- Overspending creates negative balances that must be covered
+- Monthly allocation workflow for assigning available funds
+- Historical tracking across budget periods
+- **Prevent duplicate budget periods** for the same month/year
+- **Implement proper rollover logic** for category balances
+- **Handle period transitions** carefully to maintain data integrity
+
+### Performance
+- Implement proper loading states
+- Use React.lazy for code splitting
+- Optimize bundle size
+- Implement proper caching strategies
+- Use IndexedDB efficiently
+- **Avoid unnecessary re-renders** with proper memoization
+- **Optimize large lists** with virtualization if needed
+
+### Testing Requirements
+- **Write tests for all utility functions** especially financial calculations
+- **Test components with React Testing Library** focusing on user interactions
+- **Mock external dependencies** properly in tests
+- **Test error scenarios** and edge cases thoroughly
+- **Test encryption/decryption functions** with various inputs
+- **Implement integration tests** for critical user flows
+- **Test data consistency** after complex operations
+- **Use property-based testing** for financial calculations
+
+## Common Pitfalls to Avoid
+
+### Data Management
+- **Don't use multiple storage systems** that can get out of sync
+- **Don't ignore data validation** in storage operations
+- **Don't assume operations succeed** - always handle errors
+- **Don't create duplicate records** without proper checking
+- **Don't delete data** without checking for dependencies
+
+### React & State Management
+- **Don't use `.mutate()` when you need to wait** for completion
+- **Don't forget to invalidate queries** after mutations
+- **Don't ignore loading and error states** in UI
+- **Don't create memory leaks** with uncleared effects
+- **Don't prop drill** when context or state management is better
+
+### UI & UX
+- **Don't show stale data** - ensure UI reflects current state
+- **Don't ignore accessibility** requirements
+- **Don't create confusing user flows** - test with real scenarios
+- **Don't forget mobile responsiveness**
+- **Don't ignore error messages** - make them helpful
+
+### Financial Calculations
+- **Don't use floating point** for sat calculations
+- **Don't ignore precision** in conversions
+- **Don't allow negative balances** without proper handling
+- **Don't forget to validate** financial inputs
+- **Don't ignore edge cases** like zero amounts or very large numbers
+
+## Naming Conventions
+- Components: PascalCase (e.g., `BudgetCategory`)
+- Files: kebab-case (e.g., `budget-category.tsx`)
+- Functions: camelCase (e.g., `calculateAvailable`)
+- Constants: SCREAMING_SNAKE_CASE (e.g., `SATS_PER_BTC`)
+- CSS classes: Follow Tailwind conventions
+- **Test files**: `*.test.ts` or `*.test.tsx`
+- **Hook files**: `use-*.ts` pattern
+
+## Architecture Principles
+- **Privacy First**: All data stays on client, encrypted at rest
+- **Offline First**: App should work without internet
+- **Account-Based**: All transactions tied to specific Bitcoin accounts
+- **Monthly Cycles**: Budget periods with rollover logic for unspent funds
+- **Envelope Method**: Category-based budget allocation and tracking
+- **Data Integrity**: Consistent state across all operations
+- **Progressive Enhancement**: Core features work without JavaScript
+- **Responsive Design**: Mobile-first approach
+- **Accessibility**: Follow WCAG guidelines
+- **Performance**: Fast loading and smooth interactions
+- **Testability**: Code should be easy to test and verify
+
+## Error Handling
+- Use proper error boundaries
+- Implement graceful degradation
+- Provide meaningful error messages
+- Log errors appropriately (without sensitive data)
+- Handle network failures gracefully
+- **Implement retry logic** for transient failures
+- **Validate all inputs** before processing
+- **Handle async errors** properly with try/catch
+
+## Data Management
+- Use TanStack Query for server state (if any)
+- Use React state for UI state
+- Implement proper data validation
+- Use proper serialization for IndexedDB
+- Implement data migration strategies
+- **Use unified data manager** for consistency
+- **Implement data integrity checks**
+- **Handle concurrent operations** safely
+
+## Security Guidelines
+- Validate all inputs
+- Sanitize data before storage
+- Use proper CORS headers if needed
+- Implement CSP headers
+- Use HTTPS in production
+- Regular security audits
+- **Never log sensitive data**
+- **Use proper encryption** for all stored data
+
+## Comments & Documentation
+- Use JSDoc for function documentation
+- Comment complex business logic
+- Document encryption/decryption processes
+- Maintain README with setup instructions
+- Document API interfaces
+- **Document data models** thoroughly
+- **Explain complex algorithms** with comments
+- **Keep documentation current** with code changes
+
+## Git Practices
+- Use conventional commits
+- Keep commits atomic
+- Write descriptive commit messages
+- Use feature branches
+- Regular rebasing for clean history
+- **Test before committing**
+- **Review changes carefully**
+- **Document breaking changes**
+
+## Avoid
+- Floating point arithmetic for sats
+- Storing sensitive data in localStorage
+- Using `any` type in TypeScript
+- Large component files (>200 lines)
+- Inline styles (use Tailwind classes)
+- Direct DOM manipulation
+- Unhandled promises
+- Memory leaks in useEffect
+- **Multiple storage systems** that can get out of sync
+- **Ignoring data validation** in critical operations
+- **Using `.mutate()` when you need to wait** for completion
+- **Creating duplicate records** without checking
+- **Deleting data** without dependency checks
+
+## Focus Areas
+- Clean, maintainable code
+- Strong typing with TypeScript
+- Privacy and security
+- Performance optimization
+- Accessibility
+- Mobile responsiveness
+- Offline functionality
+- **Data consistency and integrity**
+- **Comprehensive testing**
+- **Error handling and recovery**
+
+
+- **User experience and usability** 

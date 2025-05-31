@@ -598,7 +598,7 @@ export class BudgetStorageService {
   }
 
   // Summary and analytics
-  async getBudgetSummary(): Promise<BudgetSummary> {
+  async getBudgetSummary(): Promise<BudgetSummary & { unassignedBalance: number; totalBalance: number }> {
     const [categories, transactions] = await Promise.all([
       this.getAllCategories(),
       this.getAllTransactions()
@@ -607,14 +607,13 @@ export class BudgetStorageService {
     const totalAllocated = categories.reduce((sum, cat) => sum + cat.targetAmount, 0)
     const totalAvailable = categories.reduce((sum, cat) => sum + cat.currentAmount, 0)
     
-    // Only count actual income transactions (exclude transfer-related transactions)
-    const transactionIncome = transactions
+    // Calculate income from actual income transactions only (not account balances)
+    const totalIncome = transactions
       .filter(t => t.amount > 0 && !t.tags?.includes('transfer') && !t.tags?.includes('account-transfer'))
       .reduce((sum, t) => sum + t.amount, 0)
     
-    // Get on-budget account balances and include them as available income
-    // This is a temporary solution for Phase 2 - in Phase 3 we'll have proper account integration
-    let accountIncome = 0
+    // Get total balance from on-budget accounts
+    let totalBalance = 0
     try {
       // Import AccountStorage dynamically to avoid circular dependency
       const { AccountStorage } = await import('./account-storage')
@@ -626,21 +625,23 @@ export class BudgetStorageService {
       
       if (currentBudget) {
         const accounts = await accountStorage.getAccounts(currentBudget.id)
-        // Only include on-budget accounts
-        accountIncome = accounts
-          .filter(account => account.isOnBudget && !account.isClosed)
-          .reduce((sum, account) => sum + account.balance, 0)
+        // Only include on-budget accounts - their balances represent total available funds
+        const onBudgetAccounts = accounts.filter(account => account.isOnBudget && !account.isClosed)
+        totalBalance = onBudgetAccounts.reduce((sum, account) => sum + account.balance, 0)
       }
     } catch (error) {
-      console.warn('Could not load account balances for budget summary:', error)
+      console.warn('Could not load account balances for budget summary, falling back to transactions:', error)
+      // Fallback to transaction-based calculation if account loading fails
+      totalBalance = totalIncome
     }
-    
-    const totalIncome = transactionIncome + accountIncome
     
     // Only count actual expense transactions (exclude transfer-related transactions)
     const expenses = transactions
       .filter(t => t.amount < 0 && !t.tags?.includes('transfer') && !t.tags?.includes('account-transfer'))
       .reduce((sum, t) => sum + Math.abs(t.amount), 0)
+
+    // Calculate unassigned balance
+    const unassignedBalance = await this.getUnassignedBalance()
 
     return {
       totalIncome,
@@ -648,27 +649,19 @@ export class BudgetStorageService {
       totalAllocated,
       totalAvailable,
       categoryCount: categories.length,
-      transactionCount: transactions.length
+      transactionCount: transactions.length,
+      unassignedBalance,
+      totalBalance
     }
   }
 
   /**
-   * Get the unassigned balance (transactions without a category + on-budget account balances - money transferred to categories)
+   * Get the unassigned balance (on-budget account balances - money allocated to categories)
    */
   async getUnassignedBalance(): Promise<number> {
-    const [transactions, categories] = await Promise.all([
-      this.getAllTransactions(),
-      this.getAllCategories()
-    ])
+    const categories = await this.getAllCategories()
     
-    // Get transactions without a categoryId (unassigned) and exclude account transfers
-    const unassignedTransactions = transactions.filter(t => 
-      !t.categoryId && !t.tags?.includes('transfer') && !t.tags?.includes('account-transfer')
-    )
-    const transactionBalance = unassignedTransactions.reduce((sum, t) => sum + t.amount, 0)
-    
-    // Get on-budget account balances and include them as unassigned funds
-    // This is a temporary solution for Phase 2 - in Phase 3 we'll have proper account integration
+    // Get on-budget account balances - these already include all transaction effects
     let accountBalance = 0
     try {
       // Import AccountStorage dynamically to avoid circular dependency
@@ -688,13 +681,20 @@ export class BudgetStorageService {
       }
     } catch (error) {
       console.warn('Could not load account balances for unassigned calculation:', error)
+      // Fallback to transaction-based calculation if account loading fails
+      const transactions = await this.getAllTransactions()
+      const unassignedTransactions = transactions.filter(t => 
+        !t.categoryId && !t.tags?.includes('transfer') && !t.tags?.includes('account-transfer')
+      )
+      accountBalance = unassignedTransactions.reduce((sum, t) => sum + t.amount, 0)
     }
     
     // Calculate total money allocated to categories (this reduces unassigned balance)
     const totalAllocatedToCategories = categories.reduce((sum, cat) => sum + cat.currentAmount, 0)
     
-    // Unassigned = Account Balance + Unassigned Transactions - Money Allocated to Categories
-    return accountBalance + transactionBalance - totalAllocatedToCategories
+    // Unassigned = Account Balance - Money Allocated to Categories
+    // Note: Account balances already include all transaction effects, so no need to add transactions separately
+    return accountBalance - totalAllocatedToCategories
   }
 
   // Utility operations

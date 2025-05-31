@@ -1,623 +1,373 @@
 import { useState } from 'react'
-import { Bitcoin, Plus, Settings, ArrowLeft, Loader2, ArrowRight, MoreVertical, Trash2, FileText } from 'lucide-react'
+import { Bitcoin, Plus, Settings, Loader2, Trash2, FileText, XCircle, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
+import { Button } from '../components/ui/button'
 
-import { useBudgetStorageInit, useCategories, useTransactions, useTransfers, useBudgetSummary, useDataManagement, useUnassignedBalance } from '../hooks/use-budget-storage'
+import {
+  useUnifiedData,
+  useTransactions,
+  useCategories,
+  useAccounts,
+  useBudgetSummary,
+  useCreateTransaction,
+  useCreateCategory,
+  useCreateAccount,
+  useResetAllData,
+  useDataManagerDiagnostics,
+  useCurrentPeriodTransactions,
+  useActiveBudgetPeriod
+} from '../hooks/use-unified-data'
+
 import { formatSats, formatBTC } from '../lib/bitcoin-utils'
 import { createSampleData } from '../lib/sample-data'
-import { UNASSIGNED_CATEGORY_ID } from '../lib/storage/budget-storage'
+import { TransactionType } from '../types/budget'
+import type { BudgetCategory } from '../types/budget'
+
+import BudgetPeriodSelector from '../components/budget-periods/budget-period-selector'
+import CategoryCard from '../components/category-card'
 import CategoryFormModal from '../components/category-form-modal'
 import TransactionFormModal from '../components/transaction-form-modal'
-import TransferFormModal from '../components/transfer-form-modal'
-import { TransactionType } from '../types/budget'
+import TransactionCard from '../components/transaction-card'
+import { DataStatusIndicator } from '../components/data-status/data-status-indicator'
+import { useDataStatus } from '../hooks/use-unified-data'
 
-const BudgetPage = () => {
+export default function BudgetPage() {
   const navigate = useNavigate()
-  const [isCreatingSample, setIsCreatingSample] = useState(false)
-  const [showCreateCategoryModal, setShowCreateCategoryModal] = useState(false)
-  const [showCreateTransactionModal, setShowCreateTransactionModal] = useState(false)
-  const [showTransferModal, setShowTransferModal] = useState(false)
-  const [showSettingsMenu, setShowSettingsMenu] = useState(false)
-  const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const { data: categories = [], isLoading: categoriesLoading } = useCategories()
+  const { data: budgetSummary, isLoading: summaryLoading } = useBudgetSummary()
+  const { data: transactions = [], isLoading: transactionsLoading } = useTransactions()
+  const activePeriod = useActiveBudgetPeriod()
+  const resetAllData = useResetAllData()
+  const diagnostics = useDataManagerDiagnostics()
+
+  const [showCategoryModal, setShowCategoryModal] = useState(false)
+  const [showTransactionModal, setShowTransactionModal] = useState(false)
+  const [editingCategory, setEditingCategory] = useState<BudgetCategory | undefined>()
   const [transactionType, setTransactionType] = useState<TransactionType>(TransactionType.EXPENSE)
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string>('')
+  const [showSettingsDropdown, setShowSettingsDropdown] = useState(false)
+
+  const { isInitialized, isHealthy, initError } = useDataStatus()
   
-  // Initialize storage and get data
-  const { isInitialized, isLoading: storageLoading } = useBudgetStorageInit()
-  const { categories, isLoading: categoriesLoading } = useCategories()
-  const { transactions, isLoading: transactionsLoading } = useTransactions()
-  const { transfers, isLoading: transfersLoading } = useTransfers()
-  const { summary, isLoading: summaryLoading } = useBudgetSummary()
-  const { clearAllData, exportData, recalculateBalances } = useDataManagement()
-  const { unassignedBalance } = useUnassignedBalance()
+  const { data: currentPeriodTransactions = [] } = useCurrentPeriodTransactions()
 
-  const isLoading = storageLoading || categoriesLoading || transactionsLoading || summaryLoading || transfersLoading
-
-  // Calculate total available sats
-  const totalAvailable = summary?.totalAvailable ?? 0
-
-  // Get recent transactions (last 5) - exclude transfer-related transactions
-  const recentTransactions = transactions
-    .filter(t => !t.tags?.includes('transfer')) // Filter out transfer-related transactions
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 5)
-
-  // Get active categories (not archived)
-  const activeCategories = categories.filter(cat => !cat.isArchived)
-
-  const handleCreateSampleData = async () => {
-    setIsCreatingSample(true)
-    try {
-      await createSampleData()
-      // Refresh the page data
-      window.location.reload()
-    } catch (error) {
-      console.error('Failed to create sample data:', error)
-    } finally {
-      setIsCreatingSample(false)
-    }
-  }
-
-  const handleAddTransaction = () => {
-    setTransactionType(TransactionType.EXPENSE)
-    setShowCreateTransactionModal(true)
-  }
-
-  const handleTransfer = () => {
-    setShowTransferModal(true)
-  }
-
-  const handleClearAllData = () => {
-    clearAllData()
-    toast.success('All data cleared successfully')
-  }
-
-  if (!isInitialized && storageLoading) {
+  if (!isInitialized) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-muted-foreground">Initializing Bitcoin Budget...</p>
+          {initError && (
+            <p className="text-red-600 text-sm mt-2">Error: {initError}</p>
+          )}
         </div>
       </div>
     )
   }
 
+  const isLoading = categoriesLoading || summaryLoading || transactionsLoading
+
+  const handleEditCategory = (category: BudgetCategory) => {
+    setEditingCategory(category)
+    setShowCategoryModal(true)
+  }
+
+  const handleCloseCategoryModal = () => {
+    setShowCategoryModal(false)
+    setEditingCategory(undefined)
+  }
+
+  const handleClearAllData = async () => {
+    if (window.confirm('Are you sure you want to clear all data? This action cannot be undone.')) {
+      try {
+        await resetAllData.mutateAsync()
+        toast.success('All data cleared successfully')
+      } catch (error) {
+        console.error('Failed to clear data:', error)
+        toast.error('Failed to clear data')
+      }
+    }
+  }
+
+  const handleResetDatabase = async () => {
+    if (window.confirm('Are you sure you want to reset the entire database? This will delete everything and cannot be undone.')) {
+      try {
+        await resetAllData.mutateAsync()
+        toast.success('Database reset successfully')
+      } catch (error) {
+        console.error('Failed to reset database:', error)
+        toast.error('Failed to reset database')
+      }
+    }
+  }
+
+  const activeCategories = categories.filter(c => !c.isArchived)
+  const recentTransactions = transactions.slice(0, 5)
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="space-y-6">
       {/* Header */}
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => navigate('/')}
-                className="p-2 hover:bg-muted rounded-lg transition-colors"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-              <div className="flex items-center space-x-2">
-                <Bitcoin className="h-6 w-6 text-primary" />
-                <h1 className="text-xl font-semibold">Bitcoin Budget</h1>
-              </div>
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              <div className="text-right">
-                <div className="text-sm text-muted-foreground">Available to Assign</div>
-                {isLoading ? (
-                  <div className="h-6 w-24 bg-muted animate-pulse rounded" />
-                ) : (
-                  <>
-                    <div className={`font-mono font-semibold ${unassignedBalance < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {formatSats(unassignedBalance)} sats
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      ₿ {formatBTC(unassignedBalance)}
-                    </div>
-                  </>
-                )}
-              </div>
-              <div className="relative">
-                <button 
-                  onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-                  className="p-2 hover:bg-muted rounded-lg transition-colors"
-                >
-                  <Settings className="h-5 w-5" />
-                </button>
-
-                {/* Settings Dropdown Menu */}
-                {showSettingsMenu && (
-                  <div className="absolute right-0 top-12 bg-card border rounded-lg shadow-lg z-10 min-w-[200px]">
-                    <button
-                      onClick={() => {
-                        navigate('/')
-                        setShowSettingsMenu(false)
-                      }}
-                      className="w-full px-4 py-3 text-left hover:bg-muted flex items-center space-x-3 text-sm"
-                    >
-                      <Plus className="h-4 w-4" />
-                      <span>New Budget</span>
-                    </button>
-                    <button
-                      onClick={async () => {
-                        await recalculateBalances()
-                        toast.success('Category balances recalculated')
-                        setShowSettingsMenu(false)
-                      }}
-                      className="w-full px-4 py-3 text-left hover:bg-muted flex items-center space-x-3 text-sm"
-                    >
-                      <Settings className="h-4 w-4" />
-                      <span>Fix Balances</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        exportData()
-                        setShowSettingsMenu(false)
-                      }}
-                      className="w-full px-4 py-3 text-left hover:bg-muted flex items-center space-x-3 text-sm"
-                    >
-                      <FileText className="h-4 w-4" />
-                      <span>Export Data</span>
-                    </button>
-                    <div className="border-t">
-                      <button
-                        onClick={() => {
-                          setShowClearConfirm(true)
-                          setShowSettingsMenu(false)
-                        }}
-                        className="w-full px-4 py-3 text-left hover:bg-muted flex items-center space-x-3 text-sm text-red-600"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        <span>Clear All Data</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        {/* Budget Summary */}
-        {summary && (
-          <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-4 border rounded-lg bg-card">
-              <div className="text-sm text-muted-foreground">Total Income</div>
-              <div className="font-mono font-semibold text-green-600">
-                +{formatSats(summary.totalIncome)} sats
-              </div>
-            </div>
-            <div className="p-4 border rounded-lg bg-card">
-              <div className="text-sm text-muted-foreground">Total Expenses</div>
-              <div className="font-mono font-semibold text-red-600">
-                -{formatSats(summary.totalExpenses)} sats
-              </div>
-            </div>
-            <div className="p-4 border rounded-lg bg-card">
-              <div className="text-sm text-muted-foreground">Available to Assign</div>
-              <div className={`font-mono font-semibold ${unassignedBalance < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                {formatSats(unassignedBalance)} sats
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Quick Actions */}
-        <div className="mb-8">
-          <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <button 
-              onClick={() => setShowCreateCategoryModal(true)}
-              className="p-4 border rounded-lg hover:bg-muted transition-colors text-left"
-            >
-              <Plus className="h-6 w-6 text-green-600 mb-2" />
-              <div className="font-medium">New Category</div>
-              <div className="text-sm text-muted-foreground">Create budget envelope</div>
-            </button>
-            
-            <button 
-              onClick={handleAddTransaction}
-              className="p-4 border rounded-lg hover:bg-muted transition-colors text-left"
-            >
-              <Plus className="h-6 w-6 text-blue-600 mb-2" />
-              <div className="font-medium">Add Transaction</div>
-              <div className="text-sm text-muted-foreground">Record income or spending</div>
-            </button>
-            
-            <button 
-              onClick={handleTransfer}
-              className="p-4 border rounded-lg hover:bg-muted transition-colors text-left"
-            >
-              <Plus className="h-6 w-6 text-purple-600 mb-2" />
-              <div className="font-medium">Transfer</div>
-              <div className="text-sm text-muted-foreground">Move between categories</div>
-            </button>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <Bitcoin className="h-8 w-8 text-orange-500" />
+          <div>
+            <h1 className="text-2xl font-bold">Bitcoin Budget</h1>
+            <p className="text-muted-foreground">Manage your sats with envelope budgeting</p>
           </div>
         </div>
 
-        {/* Navigation */}
-        <div className="mb-8">
-          <h2 className="text-lg font-semibold mb-4">Manage</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <button 
-              onClick={() => navigate('/accounts')}
-              className="p-4 border rounded-lg hover:bg-muted transition-colors text-center"
-            >
-              <div className="font-medium">Accounts</div>
-              <div className="text-sm text-muted-foreground">Bitcoin wallets</div>
-            </button>
-            
-            <button 
-              onClick={() => navigate('/categories')}
-              className="p-4 border rounded-lg hover:bg-muted transition-colors text-center"
-            >
-              <div className="font-medium">Categories</div>
-              <div className="text-sm text-muted-foreground">Budget envelopes</div>
-            </button>
-            
-            <button 
-              onClick={() => navigate('/transactions')}
-              className="p-4 border rounded-lg hover:bg-muted transition-colors text-center"
-            >
-              <div className="font-medium">Transactions</div>
-              <div className="text-sm text-muted-foreground">Income & expenses</div>
-            </button>
-            
-            <button 
-              onClick={() => navigate('/transfers')}
-              className="p-4 border rounded-lg hover:bg-muted transition-colors text-center"
-            >
-              <div className="font-medium">Transfers</div>
-              <div className="text-sm text-muted-foreground">Move between categories</div>
-            </button>
-          </div>
-        </div>
-
-        {/* Budget Categories */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Budget Categories</h2>
-            <button 
-              onClick={() => navigate('/categories')}
-              className="text-primary hover:text-primary/80 text-sm font-medium"
-            >
-              View All
-            </button>
-          </div>
+        <div className="flex items-center space-x-3">
+          <DataStatusIndicator />
           
-          <div className="grid gap-4">
-            {isLoading ? (
-              // Loading skeleton
-              <div className="p-6 border rounded-lg bg-card">
-                <div className="animate-pulse">
-                  <div className="h-4 bg-muted rounded w-1/4 mb-2" />
-                  <div className="h-6 bg-muted rounded w-1/2 mb-4" />
-                  <div className="h-2 bg-muted rounded w-full" />
-                </div>
-              </div>
-            ) : activeCategories.length > 0 ? (
-              // Show categories
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {activeCategories.map((category) => {
-                  // Calculate expenses for this category
-                  const categoryExpenses = transactions
-                    .filter(t => t.categoryId === category.id && t.amount < 0 && !t.tags?.includes('transfer'))
-                    .reduce((sum, t) => sum + Math.abs(t.amount), 0)
-                  
-                  // Allocated = current amount + expenses (what was originally put in)
-                  const allocated = category.currentAmount + categoryExpenses
-                  
-                  // Remaining = current amount (what's left to spend)
-                  const remaining = category.currentAmount
-                  
-                  // Progress based on target vs allocated
-                  const progress = category.targetAmount > 0 
-                    ? (allocated / category.targetAmount) * 100 
-                    : 0
-                  const isOverBudget = allocated > category.targetAmount
-                  
-                  return (
-                    <div key={category.id} className="p-4 border rounded-lg bg-card hover:shadow-md transition-shadow">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-medium">{category.name}</h3>
-                        <div 
-                          className="w-3 h-3 rounded-full" 
-                          style={{ backgroundColor: category.color }}
-                        />
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Allocated</span>
-                          <span className="font-mono">
-                            {formatSats(allocated)} sats
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Remaining</span>
-                          <span className="font-mono">
-                            {formatSats(remaining)} sats
-                          </span>
-                        </div>
-                        
-                        {/* Progress bar */}
-                        <div className="w-full bg-muted rounded-full h-2">
-                          <div 
-                            className={`h-2 rounded-full transition-all ${
-                              isOverBudget ? 'bg-red-500' : 'bg-green-500'
-                            }`}
-                            style={{ width: `${Math.min(progress, 100)}%` }}
-                          />
-                        </div>
-                        
-                        <div className="text-xs text-muted-foreground">
-                          {progress.toFixed(1)}% of target ({formatSats(category.targetAmount)} sats)
-                          {isOverBudget && (
-                            <span className="text-red-500 ml-1">(Over budget)</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              // Empty state
-              <div className="p-6 border rounded-lg bg-card">
-                <div className="text-center text-muted-foreground">
-                  <Bitcoin className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <h3 className="font-medium mb-2">No budget categories yet</h3>
-                  <p className="text-sm mb-4">
-                    Create your first budget category to start organizing your sats
-                  </p>
-                  <div className="flex flex-col sm:flex-row gap-2 justify-center">
-                    <button 
-                      onClick={() => setShowCreateCategoryModal(true)}
-                      className="inline-flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Create Category
-                    </button>
-                    <button 
-                      onClick={handleCreateSampleData}
-                      disabled={isCreatingSample}
-                      className="inline-flex items-center px-4 py-2 border border-primary text-primary rounded-lg hover:bg-primary/10 transition-colors disabled:opacity-50"
-                    >
-                      {isCreatingSample ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Bitcoin className="h-4 w-4 mr-2" />
-                      )}
-                      {isCreatingSample ? 'Creating...' : 'Try Sample Data'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Recent Transactions */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Recent Transactions</h2>
-            <button 
-              onClick={() => navigate('/transactions')}
-              className="text-primary hover:text-primary/80 text-sm font-medium"
+          {/* Settings Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowSettingsDropdown(!showSettingsDropdown)}
+              className="p-2 hover:bg-muted rounded-lg transition-colors"
             >
-              View All
+              <Settings className="h-5 w-5" />
             </button>
-          </div>
-          
-          <div className="border rounded-lg bg-card mb-8">
-            {isLoading ? (
-              // Loading skeleton
-              <div className="p-6">
-                <div className="animate-pulse space-y-4">
-                  {[...Array(3)].map((_, i) => (
-                    <div key={i} className="flex items-center space-x-4">
-                      <div className="h-10 w-10 bg-muted rounded-full" />
-                      <div className="flex-1">
-                        <div className="h-4 bg-muted rounded w-1/3 mb-2" />
-                        <div className="h-3 bg-muted rounded w-1/4" />
-                      </div>
-                      <div className="h-4 bg-muted rounded w-20" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : recentTransactions.length > 0 ? (
-              // Show transactions
-              <div className="divide-y">
-                {recentTransactions.map((transaction) => {
-                  const category = categories.find(cat => cat.id === transaction.categoryId)
-                  const isIncome = transaction.amount > 0
-                  
-                  return (
-                    <div key={transaction.id} className="p-4 flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                          isIncome ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
-                        }`}>
-                          <Bitcoin className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <div className="font-medium">{transaction.description}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {category ? category.name : 'Unassigned'} • {new Date(transaction.date).toLocaleDateString()}
-                          </div>
-                        </div>
-                      </div>
-                      <div className={`font-mono font-semibold ${
-                        isIncome ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {isIncome ? '+' : '-'}{formatSats(Math.abs(transaction.amount))} sats
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              // Empty state
-              <div className="p-6 text-center text-muted-foreground">
-                <div className="h-12 w-12 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
-                  <Bitcoin className="h-6 w-6" />
-                </div>
-                <h3 className="font-medium mb-2">No transactions yet</h3>
-                <p className="text-sm">
-                  Your transaction history will appear here
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* Recent Transfers */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Recent Transfers</h2>
-            <button 
-              onClick={() => navigate('/transfers')}
-              className="text-primary hover:text-primary/80 text-sm font-medium"
-            >
-              View All
-            </button>
-          </div>
-          
-          <div className="border rounded-lg bg-card">
-            {isLoading ? (
-              // Loading skeleton
-              <div className="p-6">
-                <div className="animate-pulse space-y-4">
-                  {[...Array(2)].map((_, i) => (
-                    <div key={i} className="flex items-center space-x-4">
-                      <div className="h-8 w-8 bg-muted rounded-full" />
-                      <div className="flex-1">
-                        <div className="h-4 bg-muted rounded w-1/2 mb-2" />
-                        <div className="h-3 bg-muted rounded w-1/3" />
-                      </div>
-                      <div className="h-4 bg-muted rounded w-16" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : transfers.length > 0 ? (
-              // Show recent transfers (last 3)
-              <div className="divide-y">
-                {transfers
-                  .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                  .slice(0, 3)
-                  .map((transfer) => {
-                    const fromCategory = categories.find(cat => cat.id === transfer.fromCategoryId)
-                    const toCategory = categories.find(cat => cat.id === transfer.toCategoryId)
-                    
-                    const fromCategoryName = transfer.fromCategoryId === UNASSIGNED_CATEGORY_ID 
-                      ? 'Available to Assign' 
-                      : (fromCategory?.name || 'Unknown')
-                    const toCategoryName = transfer.toCategoryId === UNASSIGNED_CATEGORY_ID 
-                      ? 'Available to Assign' 
-                      : (toCategory?.name || 'Unknown')
-                    
-                    return (
-                      <div key={transfer.id} className="p-4 flex items-center justify-between">
-                        <div className="flex items-center space-x-3 flex-1 min-w-0">
-                          <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
-                            <ArrowRight className="h-4 w-4" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="font-medium truncate">
-                              {fromCategoryName} → {toCategoryName}
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              {new Date(transfer.createdAt).toLocaleDateString()}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="font-mono font-semibold text-blue-600">
-                          {formatSats(transfer.amount)} sats
-                        </div>
-                      </div>
-                    )
-                  })}
-              </div>
-            ) : (
-              // Empty state
-              <div className="p-6 text-center text-muted-foreground">
-                <div className="h-12 w-12 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
-                  <ArrowRight className="h-6 w-6" />
-                </div>
-                <h3 className="font-medium mb-2">No transfers yet</h3>
-                <p className="text-sm">
-                  Your transfer history will appear here
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      </main>
-
-      {/* Modals */}
-      <CategoryFormModal
-        isOpen={showCreateCategoryModal}
-        onClose={() => setShowCreateCategoryModal(false)}
-      />
-      
-      <TransactionFormModal
-        isOpen={showCreateTransactionModal}
-        onClose={() => setShowCreateTransactionModal(false)}
-        defaultType={transactionType}
-      />
-      
-      <TransferFormModal
-        isOpen={showTransferModal}
-        onClose={() => setShowTransferModal(false)}
-      />
-
-      {/* Clear Data Confirmation Modal */}
-      {showClearConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card rounded-lg shadow-lg w-full max-w-md">
-            <div className="p-6">
-              <h3 className="text-lg font-semibold mb-2">Clear All Data</h3>
-              <p className="text-muted-foreground mb-4">
-                Are you sure you want to clear all data? This will permanently delete all categories, transactions, and transfers. This action cannot be undone.
-              </p>
-              
-              <div className="flex space-x-3">
+            {showSettingsDropdown && (
+              <div className="absolute right-0 top-10 bg-card border rounded-lg shadow-lg z-10 min-w-[200px]">
                 <button
-                  onClick={() => setShowClearConfirm(false)}
-                  className="flex-1 px-4 py-2 border rounded-lg hover:bg-muted transition-colors"
+                  onClick={() => {
+                    createSampleData()
+                    setShowSettingsDropdown(false)
+                  }}
+                  className="w-full px-3 py-2 text-left hover:bg-muted flex items-center space-x-2 text-sm"
                 >
-                  Cancel
+                  <Plus className="h-4 w-4" />
+                  <span>Create Sample Data</span>
                 </button>
+                
+                <button
+                  onClick={() => {
+                    // Export functionality would go here
+                    setShowSettingsDropdown(false)
+                  }}
+                  className="w-full px-3 py-2 text-left hover:bg-muted flex items-center space-x-2 text-sm"
+                >
+                  <FileText className="h-4 w-4" />
+                  <span>Export Data</span>
+                </button>
+
+                <hr className="my-1" />
+                
                 <button
                   onClick={() => {
                     handleClearAllData()
-                    setShowClearConfirm(false)
+                    setShowSettingsDropdown(false)
                   }}
-                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  className="w-full px-3 py-2 text-left hover:bg-muted flex items-center space-x-2 text-sm text-red-600"
                 >
-                  Clear All Data
+                  <Trash2 className="h-4 w-4" />
+                  <span>Clear All Data</span>
+                </button>
+
+                <button
+                  onClick={async () => {
+                    await handleResetDatabase()
+                    setShowSettingsDropdown(false)
+                  }}
+                  className="w-full px-3 py-2 text-left hover:bg-muted flex items-center space-x-2 text-sm text-red-600"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  <span>Reset Database</span>
                 </button>
               </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Budget Period Selector */}
+      <BudgetPeriodSelector />
+
+      {/* Budget Summary */}
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="p-4 border rounded-lg bg-card">
+              <div className="animate-pulse">
+                <div className="h-4 bg-muted rounded w-3/4 mb-2"></div>
+                <div className="h-6 bg-muted rounded w-1/2"></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="p-4 border rounded-lg bg-card">
+            <div className="text-sm text-muted-foreground mb-1">Total Available</div>
+            <div className="text-2xl font-bold text-green-600">
+              {formatSats(budgetSummary?.totalAccountBalance || 0)}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              ₿ {formatBTC(budgetSummary?.totalAccountBalance || 0)}
+            </div>
+          </div>
+
+          <div className="p-4 border rounded-lg bg-card">
+            <div className="text-sm text-muted-foreground mb-1">Allocated</div>
+            <div className="text-2xl font-bold text-blue-600">
+              {formatSats(budgetSummary?.totalAllocated || 0)}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              ₿ {formatBTC(budgetSummary?.totalAllocated || 0)}
+            </div>
+          </div>
+
+          <div className="p-4 border rounded-lg bg-card">
+            <div className="text-sm text-muted-foreground mb-1">Unassigned</div>
+            <div className={`text-2xl font-bold ${
+              (budgetSummary?.unassignedBalance || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+            }`}>
+              {formatSats(budgetSummary?.unassignedBalance || 0)}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              ₿ {formatBTC(budgetSummary?.unassignedBalance || 0)}
+            </div>
+          </div>
+
+          <div className="p-4 border rounded-lg bg-card">
+            <div className="text-sm text-muted-foreground mb-1">Net Worth</div>
+            <div className="text-2xl font-bold text-purple-600">
+              {formatSats(budgetSummary?.netWorth || 0)}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              ₿ {formatBTC(budgetSummary?.netWorth || 0)}
             </div>
           </div>
         </div>
       )}
 
-      {/* Click outside to close settings menu */}
-      {showSettingsMenu && (
+      {/* Quick Actions */}
+      <div className="flex flex-wrap gap-3">
+        <button
+          onClick={() => setShowTransactionModal(true)}
+          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          <span>Add Transaction</span>
+        </button>
+
+        <button
+          onClick={() => setShowCategoryModal(true)}
+          className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          <span>Add Category</span>
+        </button>
+
+        <button
+          onClick={() => navigate('/accounts')}
+          className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          <span>Add Account</span>
+        </button>
+      </div>
+
+      {/* Categories */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Categories</h2>
+          {activeCategories.length > 0 && (
+            <button
+              onClick={() => navigate('/categories')}
+              className="text-sm text-blue-600 hover:text-blue-700"
+            >
+              View all
+            </button>
+          )}
+        </div>
+
+        {activeCategories.length === 0 ? (
+          <div className="text-center py-8 border rounded-lg bg-card">
+            <p className="text-muted-foreground mb-4">No categories yet</p>
+            <button
+              onClick={() => setShowCategoryModal(true)}
+              className="inline-flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Create your first category</span>
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {activeCategories.slice(0, 6).map((category) => {
+              const allocation = []
+              return (
+                <CategoryCard
+                  key={category.id}
+                  category={category}
+                  onEdit={handleEditCategory}
+                />
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Recent Transactions */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Recent Transactions</h2>
+          {recentTransactions.length > 0 && (
+            <button
+              onClick={() => navigate('/transactions')}
+              className="text-sm text-blue-600 hover:text-blue-700"
+            >
+              View all
+            </button>
+          )}
+        </div>
+
+        {recentTransactions.length === 0 ? (
+          <div className="text-center py-8 border rounded-lg bg-card">
+            <p className="text-muted-foreground mb-4">No transactions yet</p>
+            <button
+              onClick={() => setShowTransactionModal(true)}
+              className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Add your first transaction</span>
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {recentTransactions.map((transaction) => (
+              <TransactionCard
+                key={transaction.id}
+                transaction={transaction}
+                onEdit={() => {}}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Modals */}
+      <CategoryFormModal
+        isOpen={showCategoryModal}
+        onClose={handleCloseCategoryModal}
+        category={editingCategory}
+      />
+
+      <TransactionFormModal
+        isOpen={showTransactionModal}
+        onClose={() => setShowTransactionModal(false)}
+      />
+
+      {/* Click outside to close settings dropdown */}
+      {showSettingsDropdown && (
         <div 
           className="fixed inset-0 z-0" 
-          onClick={() => setShowSettingsMenu(false)}
+          onClick={() => setShowSettingsDropdown(false)}
         />
       )}
     </div>
   )
 }
-
-export default BudgetPage

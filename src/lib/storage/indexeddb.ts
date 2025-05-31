@@ -1,17 +1,19 @@
-import type { Budget, BudgetCategory, Transaction, Transfer, StorageMetadata } from '../../types/budget'
+import type { Budget, BudgetCategory, Transaction, Transfer, StorageMetadata, BudgetPeriod, CategoryAllocation } from '../../types/budget'
 import type { Account } from '../../types/account'
 
 // Database configuration
 const DB_NAME = 'BitcoinBudgetDB'
-const DB_VERSION = 2 // Incremented for Phase 2 accounts
+const DB_VERSION = 3 // Updated for Phase 3
 
 // Object store names
 export const STORES = {
   BUDGETS: 'budgets',
-  ACCOUNTS: 'accounts',
-  CATEGORIES: 'categories', 
+  CATEGORIES: 'categories',
   TRANSACTIONS: 'transactions',
   TRANSFERS: 'transfers',
+  ACCOUNTS: 'accounts',
+  BUDGET_PERIODS: 'budgetPeriods',
+  CATEGORY_ALLOCATIONS: 'categoryAllocations',
   METADATA: 'metadata'
 } as const
 
@@ -22,6 +24,8 @@ interface DBSchema {
   [STORES.CATEGORIES]: BudgetCategory
   [STORES.TRANSACTIONS]: Transaction
   [STORES.TRANSFERS]: Transfer
+  [STORES.BUDGET_PERIODS]: BudgetPeriod
+  [STORES.CATEGORY_ALLOCATIONS]: CategoryAllocation
   [STORES.METADATA]: StorageMetadata
 }
 
@@ -42,53 +46,88 @@ export function openDatabase(): Promise<IDBDatabase> {
     
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result
-      
-      // Create budgets store
-      if (!db.objectStoreNames.contains(STORES.BUDGETS)) {
-        const budgetStore = db.createObjectStore(STORES.BUDGETS, { keyPath: 'id' })
-        budgetStore.createIndex('isActive', 'isActive', { unique: false })
-        budgetStore.createIndex('createdAt', 'createdAt', { unique: false })
+      const transaction = (event.target as IDBOpenDBRequest).transaction!
+      const oldVersion = event.oldVersion
+
+      // Version 1: Initial schema
+      if (oldVersion < 1) {
+        // Create budgets store
+        if (!db.objectStoreNames.contains(STORES.BUDGETS)) {
+          db.createObjectStore(STORES.BUDGETS, { keyPath: 'id' })
+        }
+
+        // Create categories store
+        if (!db.objectStoreNames.contains(STORES.CATEGORIES)) {
+          const categoriesStore = db.createObjectStore(STORES.CATEGORIES, { keyPath: 'id' })
+          categoriesStore.createIndex('budgetId', 'budgetId', { unique: false })
+        }
+
+        // Create transactions store
+        if (!db.objectStoreNames.contains(STORES.TRANSACTIONS)) {
+          const transactionsStore = db.createObjectStore(STORES.TRANSACTIONS, { keyPath: 'id' })
+          transactionsStore.createIndex('categoryId', 'categoryId', { unique: false })
+          transactionsStore.createIndex('date', 'date', { unique: false })
+        }
+
+        // Create transfers store
+        if (!db.objectStoreNames.contains(STORES.TRANSFERS)) {
+          const transfersStore = db.createObjectStore(STORES.TRANSFERS, { keyPath: 'id' })
+          transfersStore.createIndex('fromCategoryId', 'fromCategoryId', { unique: false })
+          transfersStore.createIndex('toCategoryId', 'toCategoryId', { unique: false })
+        }
+
+        // Create metadata store
+        if (!db.objectStoreNames.contains(STORES.METADATA)) {
+          db.createObjectStore(STORES.METADATA, { keyPath: 'version' })
+        }
       }
-      
-      // Create accounts store
-      if (!db.objectStoreNames.contains(STORES.ACCOUNTS)) {
-        const accountStore = db.createObjectStore(STORES.ACCOUNTS, { keyPath: 'id' })
-        accountStore.createIndex('budgetId', 'budgetId', { unique: false })
-        accountStore.createIndex('type', 'type', { unique: false })
-        accountStore.createIndex('isOnBudget', 'isOnBudget', { unique: false })
-        accountStore.createIndex('isClosed', 'isClosed', { unique: false })
-        accountStore.createIndex('createdAt', 'createdAt', { unique: false })
+
+      // Version 2: Add accounts for Phase 2
+      if (oldVersion < 2) {
+        if (!db.objectStoreNames.contains(STORES.ACCOUNTS)) {
+          const accountsStore = db.createObjectStore(STORES.ACCOUNTS, { keyPath: 'id' })
+          accountsStore.createIndex('budgetId', 'budgetId', { unique: false })
+          accountsStore.createIndex('isOnBudget', 'isOnBudget', { unique: false })
+          accountsStore.createIndex('isClosed', 'isClosed', { unique: false })
+        }
+
+        // Add accountId index to transactions
+        if (db.objectStoreNames.contains(STORES.TRANSACTIONS)) {
+          const transactionsStore = transaction.objectStore(STORES.TRANSACTIONS)
+          if (!transactionsStore.indexNames.contains('accountId')) {
+            transactionsStore.createIndex('accountId', 'accountId', { unique: false })
+          }
+        }
       }
-      
-      // Create categories store
-      if (!db.objectStoreNames.contains(STORES.CATEGORIES)) {
-        const categoryStore = db.createObjectStore(STORES.CATEGORIES, { keyPath: 'id' })
-        categoryStore.createIndex('budgetId', 'budgetId', { unique: false })
-        categoryStore.createIndex('isArchived', 'isArchived', { unique: false })
-        categoryStore.createIndex('createdAt', 'createdAt', { unique: false })
-      }
-      
-      // Create transactions store
-      if (!db.objectStoreNames.contains(STORES.TRANSACTIONS)) {
-        const transactionStore = db.createObjectStore(STORES.TRANSACTIONS, { keyPath: 'id' })
-        transactionStore.createIndex('categoryId', 'categoryId', { unique: false })
-        transactionStore.createIndex('type', 'type', { unique: false })
-        transactionStore.createIndex('date', 'date', { unique: false })
-        transactionStore.createIndex('createdAt', 'createdAt', { unique: false })
-      }
-      
-      // Create transfers store
-      if (!db.objectStoreNames.contains(STORES.TRANSFERS)) {
-        const transferStore = db.createObjectStore(STORES.TRANSFERS, { keyPath: 'id' })
-        transferStore.createIndex('fromCategoryId', 'fromCategoryId', { unique: false })
-        transferStore.createIndex('toCategoryId', 'toCategoryId', { unique: false })
-        transferStore.createIndex('date', 'date', { unique: false })
-        transferStore.createIndex('createdAt', 'createdAt', { unique: false })
-      }
-      
-      // Create metadata store
-      if (!db.objectStoreNames.contains(STORES.METADATA)) {
-        db.createObjectStore(STORES.METADATA, { keyPath: 'version' })
+
+      // Version 3: Add budget periods and category allocations for Phase 3
+      if (oldVersion < 3) {
+        // Create budget periods store
+        if (!db.objectStoreNames.contains(STORES.BUDGET_PERIODS)) {
+          const budgetPeriodsStore = db.createObjectStore(STORES.BUDGET_PERIODS, { keyPath: 'id' })
+          budgetPeriodsStore.createIndex('budgetId', 'budgetId', { unique: false })
+          budgetPeriodsStore.createIndex('year', 'year', { unique: false })
+          budgetPeriodsStore.createIndex('month', 'month', { unique: false })
+          budgetPeriodsStore.createIndex('isActive', 'isActive', { unique: false })
+          budgetPeriodsStore.createIndex('yearMonth', ['year', 'month'], { unique: false })
+        }
+
+        // Create category allocations store
+        if (!db.objectStoreNames.contains(STORES.CATEGORY_ALLOCATIONS)) {
+          const allocationsStore = db.createObjectStore(STORES.CATEGORY_ALLOCATIONS, { keyPath: 'id' })
+          allocationsStore.createIndex('budgetPeriodId', 'budgetPeriodId', { unique: false })
+          allocationsStore.createIndex('categoryId', 'categoryId', { unique: false })
+          allocationsStore.createIndex('isOverspent', 'isOverspent', { unique: false })
+          allocationsStore.createIndex('periodCategory', ['budgetPeriodId', 'categoryId'], { unique: true })
+        }
+
+        // Add budgetPeriodId index to transactions for monthly filtering
+        if (db.objectStoreNames.contains(STORES.TRANSACTIONS)) {
+          const transactionsStore = transaction.objectStore(STORES.TRANSACTIONS)
+          if (!transactionsStore.indexNames.contains('budgetPeriodId')) {
+            transactionsStore.createIndex('budgetPeriodId', 'budgetPeriodId', { unique: false })
+          }
+        }
       }
     }
   })

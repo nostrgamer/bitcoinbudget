@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Switch } from '../ui/switch';
 import { Loader2 } from 'lucide-react';
 import { Account, CreateAccountData, UpdateAccountData, ACCOUNT_TYPES, AccountType } from '../../types/account';
-import { useAccountMutations } from '../../hooks/use-accounts';
+import { useCreateAccount, useUpdateAccount } from '../../hooks/use-unified-data';
 import { formatSats, parseSatsInput } from '../../lib/bitcoin-utils';
 
 interface AccountFormModalProps {
@@ -30,12 +30,12 @@ export function AccountFormModal({ isOpen, onClose, budgetId, account }: Account
     type: 'spending',
     description: '',
     isOnBudget: true,
-    initialBalance: '',
-  });
+    initialBalance: ''});
 
-  const { createAccountAsync, updateAccountAsync, isCreating, isUpdating } = useAccountMutations();
+  const createAccount = useCreateAccount();
+  const updateAccount = useUpdateAccount();
   const isEditing = !!account;
-  const isLoading = isCreating || isUpdating;
+  const isLoading = createAccount.isLoading || updateAccount.isLoading;
 
   // Reset form when modal opens/closes or account changes
   useEffect(() => {
@@ -47,8 +47,7 @@ export function AccountFormModal({ isOpen, onClose, budgetId, account }: Account
           type: account.type,
           description: account.description || '',
           isOnBudget: account.isOnBudget,
-          initialBalance: account.balance > 0 ? formatSats(account.balance) : '',
-        });
+          initialBalance: account.balance > 0 ? formatSats(account.balance) : ''});
       } else {
         // Creating new account - ensure form is completely reset
         setFormData({
@@ -56,8 +55,7 @@ export function AccountFormModal({ isOpen, onClose, budgetId, account }: Account
           type: 'spending',
           description: '',
           isOnBudget: true,
-          initialBalance: '',
-        });
+          initialBalance: ''});
       }
     } else {
       // Modal is closed - reset form to prevent stale data
@@ -66,8 +64,7 @@ export function AccountFormModal({ isOpen, onClose, budgetId, account }: Account
         type: 'spending',
         description: '',
         isOnBudget: true,
-        initialBalance: '',
-      });
+        initialBalance: ''});
     }
   }, [isOpen, account]);
 
@@ -78,24 +75,22 @@ export function AccountFormModal({ isOpen, onClose, budgetId, account }: Account
     
     try {
       if (isEditing && account) {
-        const updates: UpdateAccountData = {
+        const updates = {
           name: formData.name,
           type: formData.type,
           ...(formData.description.trim() && { description: formData.description.trim() }),
-          isOnBudget: formData.isOnBudget,
-        };
+          isOnBudget: formData.isOnBudget};
         console.log('Updating account:', updates);
-        await updateAccountAsync({ accountId: account.id, updates });
+        await updateAccount.mutateAsync({ id: account.id, updates });
       } else {
-        const data: CreateAccountData = {
+        const data = {
           name: formData.name,
           type: formData.type,
           ...(formData.description.trim() && { description: formData.description.trim() }),
           isOnBudget: formData.isOnBudget,
-          initialBalance: formData.initialBalance ? parseSatsInput(formData.initialBalance) : 0,
-        };
+          initialBalance: formData.initialBalance ? parseSatsInput(formData.initialBalance) : 0};
         console.log('Creating account:', data);
-        await createAccountAsync({ budgetId, data });
+        await createAccount.mutateAsync(data);
       }
       console.log('Account operation successful');
       onClose();
@@ -131,21 +126,17 @@ export function AccountFormModal({ isOpen, onClose, budgetId, account }: Account
 
           <div className="space-y-2">
             <Label htmlFor="type">Account Type</Label>
-            <Select value={formData.type} onValueChange={(value) => handleInputChange('type', value)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {ACCOUNT_TYPES.map((type) => (
-                  <SelectItem key={type.value} value={type.value}>
-                    <div>
-                      <div className="font-medium">{type.label}</div>
-                      <div className="text-sm text-muted-foreground">{type.description}</div>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <select 
+              value={formData.type} 
+              onChange={(e) => handleInputChange('type', e.target.value)}
+              className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              {ACCOUNT_TYPES.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="space-y-2">
@@ -176,7 +167,6 @@ export function AccountFormModal({ isOpen, onClose, budgetId, account }: Account
 
           <div className="flex items-center space-x-2">
             <Switch
-              id="isOnBudget"
               checked={formData.isOnBudget}
               onCheckedChange={(checked) => handleInputChange('isOnBudget', checked)}
             />
@@ -201,4 +191,6 @@ export function AccountFormModal({ isOpen, onClose, budgetId, account }: Account
       </DialogContent>
     </Dialog>
   );
-} 
+}
+
+export default AccountFormModal; 

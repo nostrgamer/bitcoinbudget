@@ -98,40 +98,35 @@ export async function createSampleData(): Promise<void> {
         description: 'Weekly grocery shopping',
         date: new Date(2024, 0, 15),
         type: TransactionType.EXPENSE,
-        accountId: defaultAccount.id,
-      },
+        accountId: defaultAccount.id},
       {
         categoryId: createdCategories[1]?.id || null, // Transportation
         amount: -8000, // 8,000 sats expense
         description: 'Bus fare',
         date: new Date(2024, 0, 16),
         type: TransactionType.EXPENSE,
-        accountId: defaultAccount.id,
-      },
+        accountId: defaultAccount.id},
       {
         categoryId: createdCategories[2]?.id || null, // Entertainment
         amount: -15000, // 15,000 sats expense
         description: 'Movie tickets',
         date: new Date(2024, 0, 17),
         type: TransactionType.EXPENSE,
-        accountId: defaultAccount.id,
-      },
+        accountId: defaultAccount.id},
       {
         categoryId: null, // Unassigned income
         amount: 500000, // 500,000 sats income
         description: 'Freelance payment',
         date: new Date(2024, 0, 10),
         type: TransactionType.INCOME,
-        accountId: defaultAccount.id,
-      },
+        accountId: defaultAccount.id},
       {
         categoryId: null, // Unassigned income
         amount: 200000, // 200,000 sats income
         description: 'Side project payment',
         date: new Date(2024, 0, 12),
         type: TransactionType.INCOME,
-        accountId: defaultAccount.id,
-      },
+        accountId: defaultAccount.id},
     ]
 
     // Create transactions
